@@ -1,0 +1,188 @@
+{
+  "project_info": {
+    "project_name": "cycpep-tools",
+    "description": "MCP tools for cyclic peptide computational analysis and design using AlphaFold",
+    "total_tools": 13,
+    "scripts": 3,
+    "config_files": 4,
+    "demo_files": 4
+  },
+  "tools": [
+    {
+      "name": "get_job_status",
+      "category": "job_management",
+      "type": "sync",
+      "description": "Check job progress and status",
+      "example_prompt": "Check the status of job abc12345"
+    },
+    {
+      "name": "get_job_result",
+      "category": "job_management",
+      "type": "sync",
+      "description": "Get completed job results",
+      "example_prompt": "Get results for completed job abc12345"
+    },
+    {
+      "name": "get_job_log",
+      "category": "job_management",
+      "type": "sync",
+      "description": "View job execution logs",
+      "example_prompt": "Show me the execution logs for job abc12345"
+    },
+    {
+      "name": "cancel_job",
+      "category": "job_management",
+      "type": "sync",
+      "description": "Cancel running job",
+      "example_prompt": "Cancel job abc12345"
+    },
+    {
+      "name": "list_jobs",
+      "category": "job_management",
+      "type": "sync",
+      "description": "List all jobs with optional filtering",
+      "example_prompt": "List all running jobs"
+    },
+    {
+      "name": "predict_cyclic_structure",
+      "category": "sync_api",
+      "type": "sync",
+      "description": "Generate 3D structure from scratch (hallucination)",
+      "example_prompt": "Generate an 8-residue cyclic peptide quickly for testing"
+    },
+    {
+      "name": "design_cyclic_sequence",
+      "category": "sync_api",
+      "type": "sync",
+      "description": "Redesign amino acid sequence for given backbone",
+      "example_prompt": "Using @examples/data/test_backbone.pdb, redesign the sequence for chain A"
+    },
+    {
+      "name": "validate_cyclic_peptide_file",
+      "category": "sync_api",
+      "type": "sync",
+      "description": "Validate PDB file structure and extract basic information",
+      "example_prompt": "Validate the structure file @examples/data/structures/1P3J.pdb"
+    },
+    {
+      "name": "submit_cyclic_binder_design",
+      "category": "submit_api",
+      "type": "submit",
+      "description": "Design cyclic peptide binders to target protein structures",
+      "example_prompt": "Design a 12-residue cyclic peptide binder to @examples/data/structures/1O91.pdb"
+    },
+    {
+      "name": "submit_large_structure_prediction",
+      "category": "submit_api",
+      "type": "submit",
+      "description": "High-quality structure prediction for large peptides",
+      "example_prompt": "Submit high-quality prediction for 20-residue cyclic peptide with 200 iterations"
+    },
+    {
+      "name": "submit_large_sequence_design",
+      "category": "submit_api",
+      "type": "submit",
+      "description": "High-accuracy sequence design for complex backbones",
+      "example_prompt": "Submit high-accuracy sequence design for complex backbone with 200 iterations"
+    },
+    {
+      "name": "submit_batch_structure_prediction",
+      "category": "submit_api",
+      "type": "submit",
+      "description": "Generate multiple cyclic peptides in a single job",
+      "example_prompt": "Generate peptides of lengths 8, 10, 12, 14 excluding cysteines"
+    },
+    {
+      "name": "get_server_info",
+      "category": "utility",
+      "type": "sync",
+      "description": "Get server information and available tools",
+      "example_prompt": "What tools are available from cycpep-tools?"
+    }
+  ],
+  "scripts": [
+    {
+      "name": "predict_cyclic_structure.py",
+      "description": "Generate 3D structure from scratch using AlphaFold hallucination",
+      "example_command": "python scripts/predict_cyclic_structure.py --length 8 --soft_iters 20 --quiet",
+      "tested": true,
+      "runtime_estimate": "2-3 minutes (small peptides)"
+    },
+    {
+      "name": "design_cyclic_sequence.py",
+      "description": "Redesign amino acid sequence for given cyclic backbone",
+      "example_command": "python scripts/design_cyclic_sequence.py --input examples/data/test_backbone.pdb --chain A",
+      "tested": false,
+      "runtime_estimate": "5-10 minutes (small backbones)"
+    },
+    {
+      "name": "design_cyclic_binder.py",
+      "description": "Design cyclic peptide binders to target protein structures",
+      "example_command": "python scripts/design_cyclic_binder.py --target examples/data/structures/1O91.pdb --binder_len 12",
+      "tested": false,
+      "runtime_estimate": "20-40 minutes (complex)"
+    }
+  ],
+  "demo_data": [
+    {
+      "file": "examples/data/sequences/sample_cyclic_peptides.txt",
+      "description": "21 example cyclic peptide sequences with descriptions",
+      "used_by": ["Reference sequences", "All tools"]
+    },
+    {
+      "file": "examples/data/structures/1P3J.pdb",
+      "description": "Example protein structure for testing",
+      "used_by": ["design_cyclic_sequence", "validate_cyclic_peptide_file"]
+    },
+    {
+      "file": "examples/data/structures/1O91.pdb",
+      "description": "Target protein structure for binder design",
+      "used_by": ["submit_cyclic_binder_design"]
+    },
+    {
+      "file": "examples/data/test_backbone.pdb",
+      "description": "Sample cyclic backbone structure for testing",
+      "used_by": ["design_cyclic_sequence"]
+    }
+  ],
+  "configs": [
+    {
+      "file": "configs/predict_cyclic_structure_config.json",
+      "description": "Configuration for structure prediction",
+      "key_parameters": {"soft_iters": 50, "rm_aa": "C", "stage_iters": [50, 50, 10]}
+    },
+    {
+      "file": "configs/design_cyclic_sequence_config.json",
+      "description": "Configuration for sequence design",
+      "key_parameters": {"iterations": 100, "chain": "A"}
+    },
+    {
+      "file": "configs/design_cyclic_binder_config.json",
+      "description": "Configuration for binder design",
+      "key_parameters": {"interface_cutoff": 8.0, "iterations": 100}
+    },
+    {
+      "file": "configs/default_config.json",
+      "description": "Global defaults and quality thresholds",
+      "key_parameters": {"plddt_good": 0.70, "pae_good": 0.30, "optimization_defaults": "varies"}
+    }
+  ],
+  "quality_metrics": {
+    "plddt_thresholds": {
+      "excellent": ">0.90",
+      "good": ">0.70",
+      "acceptable": ">0.50"
+    },
+    "pae_thresholds": {
+      "excellent": "<0.10",
+      "good": "<0.30",
+      "acceptable": "<0.50"
+    }
+  },
+  "installation_verified": {
+    "scripts_help": true,
+    "file_paths": true,
+    "tool_count": true,
+    "environment": "conda/mamba"
+  }
+}

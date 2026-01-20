@@ -1,0 +1,71 @@
+{
+  "_description": "Configuration for cyclic peptide structure prediction (hallucination)",
+  "_source": "Extracted from examples/use_case_2_cyclic_hallucination.py",
+
+  "peptide": {
+    "length_range": [5, 50],
+    "rm_aa": "C",
+    "excluded_aa_explanation": "C: Cysteine excluded to avoid disulfide bonds"
+  },
+
+  "cyclization": {
+    "offset_type": 2,
+    "offset_type_explanation": "1: basic, 2: signed (default), 3: enhanced with scaling"
+  },
+
+  "structure_constraints": {
+    "add_rg": false,
+    "rg_weight": 0.1,
+    "rg_explanation": "Radius of gyration constraint for compact structures"
+  },
+
+  "alphafold": {
+    "num_recycles": 0,
+    "recycle_explanation": "AF2 recycles for better structure prediction (0 for speed)"
+  },
+
+  "optimization": {
+    "soft_iters": 50,
+    "stage_iters": [50, 50, 10],
+    "stage_explanation": "Three-stage design: [logits, soft, hard] iterations",
+    "contact_cutoff": 21.6875,
+    "contact_explanation": "Distance cutoff for contact prediction in Angstroms"
+  },
+
+  "loss_weights": {
+    "pae": 1,
+    "plddt": 1,
+    "con": 0.5,
+    "weights_explanation": "PAE: predicted aligned error, pLDDT: confidence, con: contacts"
+  },
+
+  "quality_thresholds": {
+    "plddt_good": 0.70,
+    "plddt_excellent": 0.90,
+    "pae_excellent": 0.10,
+    "pae_good": 0.30
+  },
+
+  "examples": {
+    "small_peptide": {
+      "length": 8,
+      "rm_aa": "C",
+      "add_rg": false,
+      "description": "Fast 8-residue cyclic peptide for testing"
+    },
+    "compact_peptide": {
+      "length": 12,
+      "rm_aa": "C,M",
+      "add_rg": true,
+      "rg_weight": 0.15,
+      "description": "Compact 12-residue peptide with RG constraint"
+    },
+    "large_peptide": {
+      "length": 20,
+      "rm_aa": "C",
+      "soft_iters": 100,
+      "stage_iters": [100, 100, 20],
+      "description": "Large 20-residue peptide with extended optimization"
+    }
+  }
+}

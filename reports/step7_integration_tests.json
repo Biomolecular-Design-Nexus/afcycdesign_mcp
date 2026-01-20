@@ -1,0 +1,61 @@
+{
+  "test_date": "2025-12-31T00:06:27.808295",
+  "server_path": "/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/src/server.py",
+  "env_path": "/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env",
+  "project_root": "/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp",
+  "tests": {
+    "server_startup": {
+      "status": "passed",
+      "output": "Server started successfully",
+      "error": "",
+      "command": "env PYTHONPATH=/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp mamba run -p /home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env python -c from src.server import mcp; print('Server started successfully')"
+    },
+    "rdkit_import": {
+      "status": "passed",
+      "output": "RDKit OK: True",
+      "error": "",
+      "command": "mamba run -p /home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env python -c from rdkit import Chem; mol = Chem.MolFromSmiles('CCO'); print(f'RDKit OK: {mol is not None}')"
+    },
+    "predict_cyclic_structure_import": {
+      "status": "passed",
+      "output": "predict_cyclic_structure import OK",
+      "error": ""
+    },
+    "design_cyclic_sequence_import": {
+      "status": "passed",
+      "output": "design_cyclic_sequence import OK",
+      "error": ""
+    },
+    "design_cyclic_binder_import": {
+      "status": "passed",
+      "output": "design_cyclic_binder import OK",
+      "error": ""
+    },
+    "job_manager": {
+      "status": "passed",
+      "output": "Job manager OK: True",
+      "error": ""
+    },
+    "claude_mcp_registration": {
+      "status": "passed",
+      "output": "Checking MCP server health...\n\ncycpep-tools: /home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env/bin/python /home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/src/server.py - \u2713 Connected",
+      "error": ""
+    },
+    "fastmcp_dev_server": {
+      "status": "passed",
+      "output": "",
+      "error": "Interrupted system call ; error code 4",
+      "note": "Timeout expected for dev server test",
+      "return_code": 124
+    }
+  },
+  "issues": [],
+  "summary": {
+    "total_tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "errors": 0,
+    "pass_rate": "100.0%",
+    "overall_status": "PASS"
+  }
+}

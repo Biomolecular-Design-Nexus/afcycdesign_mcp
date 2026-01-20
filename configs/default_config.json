@@ -1,0 +1,95 @@
+{
+  "_description": "Default configuration values shared across all cyclic peptide MCP scripts",
+  "_version": "1.0",
+  "_created": "2025-12-30",
+
+  "global": {
+    "verbose": true,
+    "output_format": "pdb",
+    "save_metadata": true,
+    "metadata_format": "json"
+  },
+
+  "paths": {
+    "models_dir": "models",
+    "data_dir": "examples/data",
+    "results_dir": "results",
+    "temp_dir": "tmp"
+  },
+
+  "alphafold": {
+    "num_recycles": 0,
+    "default_explanation": "0 recycles for speed, increase for higher accuracy"
+  },
+
+  "cyclization": {
+    "offset_type": 2,
+    "default_explanation": "Type 2 provides good balance of stability and flexibility"
+  },
+
+  "quality_control": {
+    "plddt_thresholds": {
+      "excellent": 0.90,
+      "good": 0.70,
+      "acceptable": 0.50,
+      "poor": 0.30
+    },
+    "pae_thresholds": {
+      "excellent": 0.10,
+      "good": 0.30,
+      "acceptable": 0.50,
+      "poor": 1.0
+    }
+  },
+
+  "peptide_constraints": {
+    "min_length": 5,
+    "max_length": 50,
+    "recommended_min": 6,
+    "recommended_max": 20,
+    "default_excluded_aa": ["C"],
+    "exclusion_reasons": {
+      "C": "Avoids disulfide bonds that interfere with head-to-tail cyclization",
+      "M": "Can be oxidized, affecting stability",
+      "P": "Rigid structure may interfere with cyclization"
+    }
+  },
+
+  "optimization_defaults": {
+    "hallucination": {
+      "soft_iters": 50,
+      "stage_iters": [50, 50, 10],
+      "contact_cutoff": 21.6875
+    },
+    "fixbb": {
+      "iterations": 100
+    },
+    "binder": {
+      "iterations": 100,
+      "interface_cutoff": 8.0,
+      "grad_steps": 100
+    }
+  },
+
+  "loss_weights_defaults": {
+    "hallucination": {
+      "pae": 1,
+      "plddt": 1,
+      "con": 0.5
+    },
+    "fixbb": {
+      "dgram_cce": 1.0,
+      "fape": 1.0,
+      "plddt": 1.0,
+      "pae": 0.01
+    },
+    "binder": {
+      "dgram_cce": 1.0,
+      "fape": 1.0,
+      "plddt": 1.0,
+      "pae": 0.01,
+      "i_pae": 1.0,
+      "i_con": 1.0
+    }
+  }
+}

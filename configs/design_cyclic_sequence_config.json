@@ -1,0 +1,82 @@
+{
+  "_description": "Configuration for cyclic peptide sequence design (fixed backbone)",
+  "_source": "Extracted from examples/use_case_1_cyclic_fixbb_design.py",
+
+  "input": {
+    "chain": "A",
+    "positions": null,
+    "positions_explanation": "Positions to design (e.g., '1-5,10,15-20') or null for all"
+  },
+
+  "cyclization": {
+    "offset_type": 2,
+    "offset_type_explanation": "1: basic, 2: signed (default), 3: enhanced with scaling"
+  },
+
+  "structure_constraints": {
+    "add_rg": false,
+    "rg_weight": 0.1,
+    "rg_explanation": "Radius of gyration constraint for compact structures"
+  },
+
+  "alphafold": {
+    "num_recycles": 0,
+    "recycle_explanation": "AF2 recycles for better structure prediction (0 for speed)"
+  },
+
+  "optimization": {
+    "iterations": 100,
+    "iteration_explanation": "Number of design optimization iterations"
+  },
+
+  "loss_weights": {
+    "dgram_cce": 1.0,
+    "fape": 1.0,
+    "plddt": 1.0,
+    "pae": 0.01,
+    "weights_explanation": "dgram_cce: distance prediction, fape: frame aligned error, plddt: confidence, pae: alignment error"
+  },
+
+  "design_strategies": {
+    "full_design": {
+      "positions": null,
+      "description": "Design all positions in the peptide"
+    },
+    "partial_design": {
+      "positions": "1-5,10-15",
+      "description": "Design specific regions while keeping others fixed"
+    },
+    "single_position": {
+      "positions": "5",
+      "description": "Design only one position for point mutations"
+    }
+  },
+
+  "quality_thresholds": {
+    "plddt_good": 0.70,
+    "plddt_excellent": 0.90,
+    "fape_excellent": 1.0,
+    "fape_good": 2.0
+  },
+
+  "examples": {
+    "full_redesign": {
+      "chain": "A",
+      "positions": null,
+      "iterations": 100,
+      "description": "Complete sequence redesign"
+    },
+    "core_design": {
+      "chain": "A",
+      "positions": "3-8",
+      "iterations": 150,
+      "description": "Design core residues only"
+    },
+    "surface_design": {
+      "chain": "A",
+      "positions": "1-2,10-12",
+      "add_rg": false,
+      "description": "Design surface-exposed positions"
+    }
+  }
+}
