@@ -7,15 +7,21 @@ Original Use Case: examples/use_case_2_cyclic_hallucination.py
 Dependencies Removed: None (all essential for core functionality)
 
 Usage:
+    # Using command-line arguments
     python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb
     python scripts/predict_cyclic_structure.py --length 10 --rm_aa "C,M" --add_rg --output compact.pdb
 
+    # Using YAML config file (recommended)
+    python scripts/predict_cyclic_structure.py --config example/data/predict_8mer.yaml
+    python scripts/predict_cyclic_structure.py --config example/data/predict_12mer_production.yaml --gpu 0
+
 GPU Usage:
     python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb --gpu 0
-    python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb --gpu 1 --gpu_mem_fraction 0.8
+    python scripts/predict_cyclic_structure.py --config config.yaml --gpu 1 --gpu_mem_fraction 0.8
 
 Example:
     python scripts/predict_cyclic_structure.py --length 8 --output examples/data/predicted_8mer.pdb
+    python scripts/predict_cyclic_structure.py --config example/data/predict_compact_peptide.yaml
 """
 
 # ==============================================================================
@@ -276,6 +282,139 @@ DEFAULT_CONFIG = {
     }
 }
 
+
+# ==============================================================================
+# YAML/JSON Config Loading
+# ==============================================================================
+def load_config_file(config_path: str) -> Dict[str, Any]:
+    """
+    Load configuration from YAML or JSON file.
+
+    YAML config format:
+    ```yaml
+    name: "job_name"
+    description: "Job description"
+
+    peptide:
+      length: 8
+      exclude_amino_acids: "C,M"
+
+    constraints:
+      add_rg: true
+      rg_weight: 0.15
+      offset_type: 2
+
+    optimization:
+      num_recycles: 0
+      soft_iters: 50
+      stage_iters: [50, 50, 10]
+
+    loss_weights:
+      pae: 1.0
+      plddt: 1.0
+      con: 0.5
+
+    output:
+      file: "output.pdb"
+      save_metadata: true
+
+    gpu:
+      device: 0
+      mem_fraction: 0.9
+    ```
+
+    Args:
+        config_path: Path to YAML or JSON config file
+
+    Returns:
+        Flattened configuration dictionary compatible with run_predict_cyclic_structure
+    """
+    config_file = Path(config_path)
+    if not config_file.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    # Load raw config
+    with open(config_file) as f:
+        if config_file.suffix.lower() in ('.yaml', '.yml'):
+            try:
+                import yaml
+                raw_config = yaml.safe_load(f)
+            except ImportError:
+                raise ImportError("PyYAML is required for YAML config files. Install with: pip install pyyaml")
+        else:
+            raw_config = json.load(f)
+
+    if raw_config is None:
+        raw_config = {}
+
+    # Flatten nested YAML structure to flat config
+    config = {}
+
+    # Job metadata (for tracking)
+    if 'name' in raw_config:
+        config['job_name'] = raw_config['name']
+    if 'description' in raw_config:
+        config['job_description'] = raw_config['description']
+
+    # Peptide section
+    peptide = raw_config.get('peptide', {})
+    if 'length' in peptide:
+        config['length'] = peptide['length']
+    if 'sequence' in peptide and peptide['sequence']:
+        config['sequence'] = peptide['sequence']
+    if 'exclude_amino_acids' in peptide:
+        config['rm_aa'] = peptide['exclude_amino_acids']
+
+    # Constraints section
+    constraints = raw_config.get('constraints', {})
+    if 'add_rg' in constraints:
+        config['add_rg'] = constraints['add_rg']
+    if 'rg_weight' in constraints:
+        config['rg_weight'] = constraints['rg_weight']
+    if 'offset_type' in constraints:
+        config['offset_type'] = constraints['offset_type']
+
+    # Optimization section
+    optimization = raw_config.get('optimization', {})
+    if 'num_recycles' in optimization:
+        config['num_recycles'] = optimization['num_recycles']
+    if 'soft_iters' in optimization:
+        config['soft_iters'] = optimization['soft_iters']
+    if 'stage_iters' in optimization:
+        config['stage_iters'] = optimization['stage_iters']
+
+    # Loss weights section
+    if 'loss_weights' in raw_config:
+        config['loss_weights'] = raw_config['loss_weights']
+
+    # Output section
+    output = raw_config.get('output', {})
+    if 'file' in output and output['file']:
+        config['output_file'] = output['file']
+    if 'save_metadata' in output:
+        config['save_metadata'] = output['save_metadata']
+
+    # GPU section
+    gpu = raw_config.get('gpu', {})
+    if 'device' in gpu and gpu['device'] is not None:
+        config['gpu_device'] = gpu['device']
+    if 'mem_fraction' in gpu and gpu['mem_fraction'] is not None:
+        config['gpu_mem_fraction'] = gpu['mem_fraction']
+    if 'preallocate' in gpu:
+        config['gpu_preallocate'] = gpu['preallocate']
+
+    # Also support flat JSON format for backwards compatibility
+    for key in ['rm_aa', 'offset_type', 'add_rg', 'rg_weight', 'num_recycles',
+                'soft_iters', 'stage_iters', 'contact_cutoff', 'loss_weights']:
+        if key in raw_config and key not in config:
+            config[key] = raw_config[key]
+
+    # Store raw config for metadata
+    config['_raw_config'] = raw_config
+
+    return config
+
+
 # ==============================================================================
 # Core Functions (extracted and simplified from use case)
 # ==============================================================================
@@ -381,17 +520,53 @@ def save_output(pdb_file: str, sequences: List[str], metrics: Dict[str, Any],
 # ==============================================================================
 # Core Function (main logic extracted from use case)
 # ==============================================================================
+def validate_sequence(sequence: str) -> str:
+    """
+    Validate and normalize a peptide sequence.
+
+    Args:
+        sequence: Amino acid sequence (1-letter codes)
+
+    Returns:
+        Normalized uppercase sequence
+
+    Raises:
+        ValueError: If sequence contains invalid amino acids
+    """
+    valid_aa = set("ACDEFGHIKLMNPQRSTVWY")
+    sequence = sequence.upper().strip()
+
+    invalid = set(sequence) - valid_aa
+    if invalid:
+        raise ValueError(f"Invalid amino acids in sequence: {invalid}. "
+                        f"Valid amino acids: {''.join(sorted(valid_aa))}")
+
+    if len(sequence) < 5:
+        raise ValueError("Sequence must be at least 5 residues")
+    if len(sequence) > 50:
+        print(f"Warning: Very long sequences (>50) may be challenging to predict", file=sys.stderr)
+
+    return sequence
+
+
 def run_predict_cyclic_structure(
-    length: int,
+    length: int = None,
+    sequence: str = None,
     output_file: Optional[Union[str, Path]] = None,
     config: Optional[Dict[str, Any]] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
-    Predict/hallucinate a cyclic peptide 3D structure from scratch.
+    Predict cyclic peptide 3D structure.
+
+    Two modes:
+    1. Hallucination mode (sequence=None): Generate both sequence and structure
+    2. Sequence mode (sequence provided): Predict structure for given sequence
 
     Args:
-        length: Length of peptide to generate (5-50 residues)
+        length: Length of peptide to generate (required for hallucination mode)
+        sequence: Amino acid sequence for structure prediction (optional)
+                  If provided, predicts structure for this sequence with cyclic constraints
         output_file: Path to save PDB file (optional)
         config: Configuration dict (uses DEFAULT_CONFIG if not provided)
         **kwargs: Override specific config parameters
@@ -403,28 +578,48 @@ def run_predict_cyclic_structure(
             - metadata: Execution metadata
             - metrics: Quality metrics (pLDDT, PAE, contacts)
 
-    Example:
-        >>> result = run_predict_cyclic_structure(8, "output.pdb")
+    Example (hallucination):
+        >>> result = run_predict_cyclic_structure(length=8, output_file="output.pdb")
         >>> print(f"Sequence: {result['result']['sequences'][0]}")
+
+    Example (from sequence):
+        >>> result = run_predict_cyclic_structure(sequence="RVKDGYPF", output_file="output.pdb")
         >>> print(f"pLDDT: {result['metrics']['plddt']:.3f}")
     """
     # Setup configuration
     config = {**DEFAULT_CONFIG, **(config or {}), **kwargs}
 
-    # Validate inputs
-    validate_inputs(length, config.get("rm_aa", "C"))
+    # Determine mode and validate inputs
+    if sequence:
+        # Sequence mode: predict structure for given sequence
+        sequence = validate_sequence(sequence)
+        length = len(sequence)
+        mode = "sequence"
+    else:
+        # Hallucination mode: generate sequence and structure
+        if length is None:
+            raise ValueError("Either 'length' or 'sequence' must be provided")
+        validate_inputs(length, config.get("rm_aa", "C"))
+        mode = "hallucination"
 
     # Clear any previous models
     clear_mem()
 
-    # Initialize AlphaFold model for hallucination
+    # Initialize AlphaFold model for hallucination protocol
+    # (works for both modes - we just fix the sequence in sequence mode)
     af_model = mk_afdesign_model(
         protocol="hallucination",
         num_recycles=config.get("num_recycles", 0)
     )
 
     # Prepare inputs
-    af_model.prep_inputs(length=length, rm_aa=config.get("rm_aa", "C"))
+    if mode == "sequence":
+        # In sequence mode, don't exclude any amino acids (pass None, not empty string)
+        af_model.prep_inputs(length=length)
+    else:
+        # In hallucination mode, exclude specified amino acids
+        rm_aa = config.get("rm_aa", "C")
+        af_model.prep_inputs(length=length, rm_aa=rm_aa)
 
     # Add cyclic offset for head-to-tail cyclization
     add_cyclic_offset(af_model, offset_type=config.get("offset_type", 2))
@@ -433,50 +628,77 @@ def run_predict_cyclic_structure(
     if config.get("add_rg", False):
         add_rg_loss(af_model, weight=config.get("rg_weight", 0.1))
 
-    # Pre-design with Gumbel initialization and softmax activation
+    # Initialize model
     af_model.restart()
-    af_model.set_seq(mode="gumbel")
 
-    # Configure contact loss
-    af_model.set_opt("con", binary=True,
-                    cutoff=config.get("contact_cutoff", 21.6875),
-                    num=af_model._len, seqsep=0)
+    if mode == "sequence":
+        # Sequence mode: predict structure for fixed sequence
+        # Set the sequence and lock it (don't allow design to change it)
+        af_model.set_seq(seq=sequence)
 
-    # Set loss weights
-    weights = config.get("loss_weights", DEFAULT_CONFIG["loss_weights"])
-    af_model.set_weights(**weights)
+        # Configure contact loss
+        af_model.set_opt("con", binary=True,
+                        cutoff=config.get("contact_cutoff", 21.6875),
+                        num=af_model._len, seqsep=0)
 
-    # Run soft optimization
-    soft_iters = config.get("soft_iters", 50)
-    af_model.design_soft(soft_iters)
+        # Set loss weights
+        weights = config.get("loss_weights", DEFAULT_CONFIG["loss_weights"])
+        af_model.set_weights(**weights)
 
-    # Three-stage design: logits → soft → hard
-    stage_iters = config.get("stage_iters", [50, 50, 10])
-    af_model.set_seq(seq=af_model.aux["seq"]["pseudo"])
-    af_model.design_3stage(*stage_iters)
+        # For structure prediction, we run AlphaFold with the fixed sequence
+        # Use predict() to get structure without changing sequence
+        num_recycles = config.get("num_recycles", 1)
+        af_model.predict(verbose=True)
+
+    else:
+        # Hallucination mode: generate sequence and structure
+        af_model.set_seq(mode="gumbel")
+
+        # Configure contact loss
+        af_model.set_opt("con", binary=True,
+                        cutoff=config.get("contact_cutoff", 21.6875),
+                        num=af_model._len, seqsep=0)
+
+        # Set loss weights
+        weights = config.get("loss_weights", DEFAULT_CONFIG["loss_weights"])
+        af_model.set_weights(**weights)
+
+        # Run soft optimization
+        soft_iters = config.get("soft_iters", 50)
+        af_model.design_soft(soft_iters)
+
+        # Three-stage design: logits → soft → hard
+        stage_iters = config.get("stage_iters", [50, 50, 10])
+        af_model.set_seq(seq=af_model.aux["seq"]["pseudo"])
+        af_model.design_3stage(*stage_iters)
 
     # Get results
     sequences = af_model.get_seqs()
     metrics = af_model.aux.get('log', {})
+
+    # Build metadata
+    run_metadata = {
+        "length": af_model._len,
+        "config": config,
+        "mode": mode,
+        "protocol": "hallucination",  # AlphaFold protocol used
+        "device": {
+            "backend": _device_info["default_backend"],
+            "using_gpu": _device_info["using_gpu"],
+            "devices": _device_info["devices"]
+        }
+    }
+
+    # Add input sequence info for sequence mode
+    if mode == "sequence":
+        run_metadata["input_sequence"] = sequence
 
     # Save output if requested
     output_path = None
     if output_file:
         output_path = Path(output_file)
         af_model.save_pdb(str(output_path))
-
-        # Save metadata with device info
-        metadata = {
-            "length": af_model._len,
-            "config": config,
-            "protocol": "hallucination",
-            "device": {
-                "backend": _device_info["default_backend"],
-                "using_gpu": _device_info["using_gpu"],
-                "devices": _device_info["devices"]
-            }
-        }
-        save_output(str(output_path), sequences, metrics, metadata)
+        save_output(str(output_path), sequences, metrics, run_metadata)
 
     return {
         "result": {
@@ -485,16 +707,7 @@ def run_predict_cyclic_structure(
         },
         "output_file": str(output_path) if output_path else None,
         "metrics": metrics,
-        "metadata": {
-            "length": af_model._len,
-            "config": config,
-            "protocol": "hallucination",
-            "device": {
-                "backend": _device_info["default_backend"],
-                "using_gpu": _device_info["using_gpu"],
-                "devices": _device_info["devices"]
-            }
-        }
+        "metadata": run_metadata
     }
 
 
@@ -506,16 +719,19 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('--length', '-l', type=int, required=True,
-                       help='Length of peptide to generate (5-50 residues)')
+    parser.add_argument('--length', '-l', type=int,
+                       help='Length of peptide to generate (5-50 residues). Required unless sequence or config provided.')
+    parser.add_argument('--sequence', '-s', type=str,
+                       help='Amino acid sequence for structure prediction (e.g., "RVKDGYPF"). '
+                            'If provided, predicts structure for this cyclic sequence.')
     parser.add_argument('--output', '-o', type=str,
                        help='Output PDB file path')
     parser.add_argument('--config', '-c', type=str,
-                       help='Config file (JSON)')
+                       help='Config file (YAML or JSON). See example/data/*.yaml for examples.')
 
     # Core parameters
     parser.add_argument('--rm_aa', type=str, default="C",
-                       help='Amino acids to exclude (comma-separated, default: C)')
+                       help='Amino acids to exclude in hallucination mode (comma-separated, default: C)')
     parser.add_argument('--offset_type', type=int, choices=[1, 2, 3], default=2,
                        help='Cyclic offset type (default: 2)')
     parser.add_argument('--add_rg', action="store_true",
@@ -547,38 +763,87 @@ def main():
 
     args = parser.parse_args()
 
-    # Load config if provided
-    config = None
+    # Load config if provided (supports both YAML and JSON)
+    file_config = {}
     if args.config:
-        with open(args.config) as f:
-            config = json.load(f)
+        file_config = load_config_file(args.config)
 
-    # Prepare config overrides from CLI args
-    overrides = {}
+    # Determine sequence (CLI > config file)
+    sequence = args.sequence or file_config.get('sequence')
+
+    # Determine peptide length (CLI > config file > from sequence)
+    if sequence:
+        length = len(sequence)
+        mode = "sequence"
+    else:
+        length = args.length or file_config.get('length')
+        mode = "hallucination"
+        if length is None:
+            parser.error("Either --length, --sequence, or config with peptide.length/peptide.sequence is required")
+
+    # Determine output path (CLI > config file > auto-generate)
+    output_path = args.output or file_config.get('output_file')
+    if not output_path:
+        # Auto-generate output path based on job name, sequence, or length
+        if 'job_name' in file_config:
+            job_name = file_config['job_name']
+        elif sequence:
+            job_name = f"cyclic_{sequence[:8]}{'...' if len(sequence) > 8 else ''}"
+        else:
+            job_name = f"cyclic_{length}mer"
+        output_path = f"outputs/{job_name}.pdb"
+
+    # Prepare config by merging: DEFAULT < file_config < CLI overrides
+    config = dict(DEFAULT_CONFIG)
+
+    # Apply file config values
+    for key in ['rm_aa', 'offset_type', 'add_rg', 'rg_weight', 'num_recycles',
+                'soft_iters', 'hard_iters', 'stage_iters', 'contact_cutoff', 'loss_weights']:
+        if key in file_config:
+            config[key] = file_config[key]
+
+    # Apply CLI overrides (only if explicitly set, not default values)
     if args.rm_aa != "C":
-        overrides["rm_aa"] = args.rm_aa
+        config["rm_aa"] = args.rm_aa
     if args.offset_type != 2:
-        overrides["offset_type"] = args.offset_type
+        config["offset_type"] = args.offset_type
     if args.add_rg:
-        overrides["add_rg"] = True
+        config["add_rg"] = True
     if args.rg_weight != 0.1:
-        overrides["rg_weight"] = args.rg_weight
+        config["rg_weight"] = args.rg_weight
     if args.num_recycles != 0:
-        overrides["num_recycles"] = args.num_recycles
+        config["num_recycles"] = args.num_recycles
     if args.soft_iters != 50:
-        overrides["soft_iters"] = args.soft_iters
+        config["soft_iters"] = args.soft_iters
     if args.stage_iters != [50, 50, 10]:
-        overrides["stage_iters"] = args.stage_iters
+        config["stage_iters"] = args.stage_iters
+
+    # Store job metadata
+    if 'job_name' in file_config:
+        config['job_name'] = file_config['job_name']
+    if 'job_description' in file_config:
+        config['job_description'] = file_config['job_description']
+    if '_raw_config' in file_config:
+        config['_raw_config'] = file_config['_raw_config']
 
     try:
         if not args.quiet:
             print("=== Cyclic Peptide Structure Prediction ===")
-            print(f"Length: {args.length}")
-            print(f"Excluded AAs: {args.rm_aa}")
-            if args.output:
-                print(f"Output: {args.output}")
-            if args.add_rg:
-                print(f"Radius of gyration constraint: weight={args.rg_weight}")
+            if 'job_name' in config:
+                print(f"Job: {config['job_name']}")
+            if 'job_description' in config:
+                print(f"Description: {config['job_description']}")
+            print(f"Mode: {mode}")
+            if sequence:
+                print(f"Sequence: {sequence}")
+            print(f"Length: {length}")
+            if mode == "hallucination":
+                print(f"Excluded AAs: {config.get('rm_aa', 'C')}")
+            print(f"Output: {output_path}")
+            if config.get('add_rg'):
+                print(f"Radius of gyration constraint: weight={config.get('rg_weight', 0.1)}")
+            if args.config:
+                print(f"Config: {args.config}")
 
             # Display device info
             print(f"\n--- Device Configuration ---")
@@ -592,12 +857,17 @@ def main():
                 print(f"GPU config: {', '.join(_gpu_config['env_vars_set'])}")
             print()
 
+        # Ensure output directory exists
+        output_dir = Path(output_path).parent
+        if output_dir and not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+
         # Run prediction
         result = run_predict_cyclic_structure(
-            length=args.length,
-            output_file=args.output,
-            config=config,
-            **overrides
+            length=length if not sequence else None,
+            sequence=sequence,
+            output_file=output_path,
+            config=config
         )
 
         if not args.quiet:
@@ -620,7 +890,9 @@ def main():
         return 0
 
     except Exception as e:
+        import traceback
         print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc()
         return 1
 
 

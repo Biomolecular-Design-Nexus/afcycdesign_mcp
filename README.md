@@ -18,46 +18,13 @@
 This MCP server provides computational tools for cyclic peptide structure prediction, sequence design, and binder development using the ColabDesign framework. The server offers both fast synchronous operations and long-running asynchronous jobs for comprehensive cyclic peptide research workflows.
 
 ### Features
-- **3D Structure Prediction**: Generate cyclic peptide structures from scratch using AlphaFold hallucination
+- **3D Structure Prediction**: Predict cyclic peptide using AlphaFold2
 - **Sequence Design**: Redesign amino acid sequences for given cyclic backbone structures
 - **Binder Development**: Design cyclic peptide binders that bind to target protein structures
 - **Batch Processing**: Generate multiple peptides with different parameters in parallel
 - **Job Management**: Track long-running computations with status monitoring and log access
 - **Quality Assessment**: Comprehensive structural quality metrics (pLDDT, PAE, contacts)
 
-### Directory Structure
-```
-./
-├── README.md               # This file
-├── env/                    # Conda environment
-├── src/
-│   ├── server.py           # MCP server (13 tools)
-│   └── jobs/
-│       └── manager.py      # Background job management
-├── scripts/
-│   ├── predict_cyclic_structure.py    # Structure prediction
-│   ├── design_cyclic_sequence.py      # Sequence design
-│   ├── design_cyclic_binder.py        # Binder design
-│   └── lib/
-│       └── validation.py              # Shared utilities
-├── examples/
-│   └── data/               # Demo data
-│       ├── sequences/      # Sample cyclic peptide sequences
-│       │   └── sample_cyclic_peptides.txt
-│       └── structures/     # Sample 3D structures
-│           ├── 1P3J.pdb    # Example protein structure
-│           ├── 1O91.pdb    # Target protein structure
-│           └── test_backbone.pdb  # Sample backbone
-├── configs/                # Configuration files
-│   ├── predict_cyclic_structure_config.json
-│   ├── design_cyclic_sequence_config.json
-│   ├── design_cyclic_binder_config.json
-│   └── default_config.json
-├── params/                 # AlphaFold parameters (downloaded automatically)
-└── jobs/                   # Job storage (auto-created)
-```
-
----
 
 ## Installation
 
@@ -71,52 +38,7 @@ Run the automated setup script:
 
 This will create the environment and install all dependencies automatically.
 
-### Manual Setup (Advanced)
-
-For manual installation or customization, follow these steps.
-
-#### Prerequisites
-- Conda or Mamba (mamba recommended for faster installation)
-- Python 3.10+
-- 4-8GB RAM for typical cyclic peptides
-- Optional: CUDA-compatible GPU for acceleration
-
-#### Create Environment
-
-Please follow the information in `reports/step3_environment.md` for detailed environment setup. Here's the standard workflow:
-
-```bash
-# Navigate to the MCP directory
-cd /home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp
-
-# Determine package manager (prefer mamba over conda)
-if command -v mamba &> /dev/null; then
-    PKG_MGR="mamba"
-else
-    PKG_MGR="conda"
-fi
-echo "Using package manager: $PKG_MGR"
-
-# Create conda environment
-$PKG_MGR create -p ./env python=3.10 pip -y
-
-# Activate environment
-$PKG_MGR activate ./env
-
-# Install JAX with CUDA support
-pip install "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-
-# Install ColabDesign
-pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.1
-
-# Install RDKit (required for molecular operations)
-$PKG_MGR install -c conda-forge rdkit -y
-
-# Install MCP dependencies
-pip install --force-reinstall --no-cache-dir fastmcp loguru click tqdm
-```
-
----
+Please view [`quick_setup.sh`](./quick_setup.sh) for manuall install.
 
 ## Local Usage (Scripts)
 
@@ -126,7 +48,7 @@ You can use the scripts directly without MCP for local processing.
 
 | Script | Description | Example Use Case |
 |--------|-------------|------------------|
-| `scripts/predict_cyclic_structure.py` | Generate 3D structure from scratch | Novel peptide design |
+| `scripts/predict_cyclic_structure.py` | Predict 3D structure from for a cyclic peptide | Novel peptide design |
 | `scripts/design_cyclic_sequence.py` | Redesign sequence for given backbone | Optimize existing structures |
 | `scripts/design_cyclic_binder.py` | Design binders to target proteins | Drug development |
 
@@ -135,29 +57,13 @@ You can use the scripts directly without MCP for local processing.
 #### Predict 3D Structure
 
 ```bash
-# Activate environment
-$PKG_MGR activate ./env
 
-# Quick 8-residue peptide for testing
-python scripts/predict_cyclic_structure.py \
-  --length 8 \
-  --output results/test_8mer.pdb \
-  --soft_iters 20 \
-  --quiet --gpu 1
+# Structure prediction from sequence (head-to-tail cyclization)
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py --config examples/predict_from_sequence.yaml --gpu 0
 
-# Standard 12-residue peptide
-python scripts/predict_cyclic_structure.py \
-  --length 12 \
-  --output results/standard_12mer.pdb \
-  --rm_aa "C,M" \
-  --soft_iters 50
+# Production 12-mer hallucination
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py --config examples/predict_12mer_production.yaml --gpu 1
 
-# Compact large peptide
-python scripts/predict_cyclic_structure.py \
-  --length 20 \
-  --output results/compact_20mer.pdb \
-  --add_rg \
-  --soft_iters 100
 ```
 
 **Parameters:**
@@ -167,6 +73,19 @@ python scripts/predict_cyclic_structure.py \
 - `--add_rg`: Add radius of gyration constraint for compact structures
 - `--soft_iters`: Number of optimization iterations (20 for testing, 50+ for production)
 - `--quiet`: Suppress verbose output
+
+##### Two Prediction Modes
+
+The script supports two modes:
+
+1. **Hallucination Mode**: Generate both sequence AND structure from scratch
+   - Use when you want to design a new cyclic peptide
+   - Specify `peptide.length` in config or `--length` on CLI
+
+2. **Sequence Mode**: Predict structure for a GIVEN sequence
+   - Use when you have a known sequence and want its 3D structure
+   - Specify `peptide.sequence` in config or `--sequence` on CLI
+   - Sequence is preserved exactly (no design changes)
 
 #### Design Sequence for Backbone
 
@@ -303,23 +222,6 @@ In Claude Code, use `@` to reference files and directories:
 
 ---
 
-## Using with Gemini CLI
-
-### Configuration
-
-Add to `~/.gemini/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "cycpep-tools": {
-      "command": "/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env/bin/python",
-      "args": ["/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/src/server.py"]
-    }
-  }
-}
-```
-
 ### Example Prompts
 
 ```bash
@@ -368,32 +270,6 @@ These tools return a job_id for tracking (> 10 minutes):
 | `list_jobs` | List all jobs | Job queue management |
 
 ---
-
-## Examples
-
-### Example 1: Quick Property Assessment
-
-**Goal:** Rapidly generate a small cyclic peptide for initial testing
-
-**Using Script:**
-```bash
-python scripts/predict_cyclic_structure.py \
-  --length 8 \
-  --output results/quick_test.pdb \
-  --soft_iters 20 \
-  --quiet
-```
-
-**Using MCP (in Claude Code):**
-```
-Generate an 8-residue cyclic peptide quickly for testing purposes using 20 iterations
-```
-
-**Expected Output:**
-- Runtime: ~2-3 minutes
-- Generated sequence (e.g., "VVDAGNNT")
-- PDB structure file (~22KB)
-- Quality metrics: pLDDT > 0.70, PAE < 0.30
 
 ### Example 2: Production-Quality Structure Prediction
 

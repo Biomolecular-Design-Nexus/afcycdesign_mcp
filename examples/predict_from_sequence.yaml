@@ -1,0 +1,43 @@
+# Cyclic Peptide Structure Prediction from Sequence
+# Mode: Structure prediction for a given sequence with head-to-tail cyclization
+# Use case: Predict 3D structure of a known cyclic peptide sequence
+
+name: "cyclosporin_like_8mer"
+description: "Predict structure for cyclic peptide sequence RVKDGYPF with head-to-tail cyclization"
+
+# Peptide specification - provide sequence for structure prediction
+peptide:
+  # Sequence to predict structure for (required for sequence mode)
+  # Only natural amino acids: ACDEFGHIKLMNPQRSTVWY
+  sequence: "RVKDGYPF"
+
+  # Length is automatically determined from sequence
+  # length: 8  # Optional, will be inferred from sequence
+
+# Structure constraints for cyclic peptide
+constraints:
+  add_rg: false                # Radius of gyration constraint, suggested to set true only for longer peptides (>10 residues)
+  rg_weight: 0.1
+  offset_type: 2               # Cyclic offset type for head-to-tail cyclization
+
+# Optimization parameters
+optimization:
+  num_recycles: 1              # More recycles for better structure quality
+  soft_iters: 50               # Soft optimization iterations
+  hard_iters: 50               # Hard optimization to refine sequence-structure match
+  stage_iters: [50, 50, 10]    # 3-stage refinement
+
+# Loss function weights
+loss_weights:
+  pae: 1.0                     # Predicted Aligned Error
+  plddt: 1.0                   # Confidence score
+  con: 0.5                     # Contact prediction
+
+# Output settings
+output:
+  save_metadata: true
+
+# GPU settings
+gpu:
+  device: 1                    # Use second GPU
+  mem_fraction: 0.9

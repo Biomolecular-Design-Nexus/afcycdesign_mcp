@@ -1,0 +1,38 @@
+# Cyclic Peptide Structure Prediction Configuration
+# Mode: hallucination (generate structure from scratch)
+# Quality: Production
+
+name: "cyclic_12mer_production"
+description: "High-quality 12-residue cyclic peptide for production use"
+
+# Peptide specification
+peptide:
+  length: 12
+  exclude_amino_acids: "C,M"   # Exclude cysteine and methionine
+
+# Structure constraints
+constraints:
+  add_rg: false
+  rg_weight: 0.1
+  offset_type: 2
+
+# High-quality optimization parameters
+optimization:
+  num_recycles: 1              # Add one recycle for better quality
+  soft_iters: 100              # More iterations for production
+  stage_iters: [100, 100, 20]
+
+# Loss function weights
+loss_weights:
+  pae: 1.0
+  plddt: 1.0
+  con: 0.5
+
+# Output settings
+output:
+  save_metadata: true
+
+# GPU settings
+gpu:
+  device: 0                    # Use first GPU
+  mem_fraction: 0.9            # Use 90% of GPU memory
