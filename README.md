@@ -143,7 +143,7 @@ python scripts/predict_cyclic_structure.py \
   --length 8 \
   --output results/test_8mer.pdb \
   --soft_iters 20 \
-  --quiet
+  --quiet --gpu 1
 
 # Standard 12-residue peptide
 python scripts/predict_cyclic_structure.py \

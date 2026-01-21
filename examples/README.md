@@ -1,4 +1,4 @@
-# Cyclic Peptide Design Examples
+# AfCycPepDesign Examples
 
 Example configurations and data for reproducing cyclic peptide structure predictions.
 
