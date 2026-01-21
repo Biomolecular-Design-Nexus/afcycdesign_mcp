@@ -10,18 +10,240 @@ Usage:
     python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb
     python scripts/predict_cyclic_structure.py --length 10 --rm_aa "C,M" --add_rg --output compact.pdb
 
+GPU Usage:
+    python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb --gpu 0
+    python scripts/predict_cyclic_structure.py --length 8 --output structure.pdb --gpu 1 --gpu_mem_fraction 0.8
+
 Example:
     python scripts/predict_cyclic_structure.py --length 8 --output examples/data/predicted_8mer.pdb
 """
 
 # ==============================================================================
+# GPU Configuration (MUST be set before importing JAX)
+# ==============================================================================
+import os
+import argparse
+import sys
+from pathlib import Path
+
+
+def get_nvidia_lib_paths() -> list:
+    """
+    Get nvidia pip package library paths for LD_LIBRARY_PATH.
+    This is needed for JAX to find CUDA libraries like cuSPARSE.
+
+    Returns:
+        List of library paths.
+    """
+    lib_paths = []
+
+    # Find nvidia packages in site-packages
+    possible_nvidia_dirs = []
+
+    # Method 1: Check relative to script location (for conda/mamba envs)
+    script_dir = Path(__file__).parent.resolve()
+    env_site_packages = script_dir.parent / "env" / "lib" / "python3.10" / "site-packages" / "nvidia"
+    if env_site_packages.exists():
+        possible_nvidia_dirs.append(env_site_packages)
+
+    # Method 2: Find nvidia package location via Python import
+    try:
+        import nvidia.cusparse as _cusparse
+        if hasattr(_cusparse, '__file__') and _cusparse.__file__:
+            nvidia_pkg_dir = Path(_cusparse.__file__).parent.parent
+            if nvidia_pkg_dir.exists() and nvidia_pkg_dir not in possible_nvidia_dirs:
+                possible_nvidia_dirs.append(nvidia_pkg_dir)
+        elif hasattr(_cusparse, '__path__'):
+            # Namespace package - get path from __path__
+            for p in _cusparse.__path__:
+                nvidia_pkg_dir = Path(p).parent
+                if nvidia_pkg_dir.exists() and nvidia_pkg_dir not in possible_nvidia_dirs:
+                    possible_nvidia_dirs.append(nvidia_pkg_dir)
+    except (ImportError, AttributeError):
+        pass
+
+    # Method 3: Check in sys.path for site-packages
+    for p in sys.path:
+        nvidia_dir = Path(p) / "nvidia"
+        if nvidia_dir.exists() and nvidia_dir not in possible_nvidia_dirs:
+            possible_nvidia_dirs.append(nvidia_dir)
+
+    # Libraries subdirectories to add
+    nvidia_lib_subdirs = [
+        "cuda_runtime/lib", "nvjitlink/lib", "cublas/lib",
+        "cufft/lib", "cusparse/lib", "cusolver/lib", "cudnn/lib", "nccl/lib"
+    ]
+
+    # Collect all lib paths
+    for nvidia_dir in possible_nvidia_dirs:
+        for lib_subdir in nvidia_lib_subdirs:
+            lib_path = nvidia_dir / lib_subdir
+            if lib_path.exists() and str(lib_path) not in lib_paths:
+                lib_paths.append(str(lib_path))
+
+    return lib_paths
+
+
+def check_gpu_env_and_reexec():
+    """
+    Check if LD_LIBRARY_PATH is set for GPU. If not, re-exec with correct env.
+    This ensures CUDA libraries are available before JAX loads.
+    """
+    # Skip if explicitly using CPU
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
+        return
+
+    # Check if we've already re-exec'd
+    if os.environ.get("_CYCPEP_GPU_ENV_SET") == "1":
+        return
+
+    # Get required nvidia lib paths
+    nvidia_paths = get_nvidia_lib_paths()
+    if not nvidia_paths:
+        return  # No nvidia libs found, skip
+
+    # Check if LD_LIBRARY_PATH already has these paths
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    needs_update = False
+    for p in nvidia_paths:
+        if p not in current_ld:
+            needs_update = True
+            break
+
+    if needs_update:
+        # Re-exec with updated LD_LIBRARY_PATH
+        new_ld = ":".join(nvidia_paths)
+        if current_ld:
+            new_ld = f"{new_ld}:{current_ld}"
+        os.environ["LD_LIBRARY_PATH"] = new_ld
+        os.environ["_CYCPEP_GPU_ENV_SET"] = "1"
+
+        # Re-exec this script
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def configure_gpu(gpu_id: int = None, mem_fraction: float = None,
+                  preallocate: bool = True) -> dict:
+    """
+    Configure GPU settings for JAX. Must be called BEFORE importing JAX.
+
+    Args:
+        gpu_id: GPU device ID to use (0, 1, etc.). None for CPU or auto-select.
+        mem_fraction: Fraction of GPU memory to use (0.0-1.0). None for default.
+        preallocate: Whether to preallocate GPU memory (default: True).
+                    Set to False for more flexible memory usage.
+
+    Returns:
+        Dict with configuration status and device info.
+    """
+    config_info = {
+        "gpu_requested": gpu_id,
+        "mem_fraction": mem_fraction,
+        "preallocate": preallocate,
+        "env_vars_set": []
+    }
+
+    if gpu_id is not None:
+        # Set specific GPU device
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        config_info["env_vars_set"].append(f"CUDA_VISIBLE_DEVICES={gpu_id}")
+
+    if mem_fraction is not None:
+        # Limit GPU memory fraction
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(mem_fraction)
+        config_info["env_vars_set"].append(f"XLA_PYTHON_CLIENT_MEM_FRACTION={mem_fraction}")
+
+    if not preallocate:
+        # Disable memory preallocation for more flexible usage
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+        config_info["env_vars_set"].append("XLA_PYTHON_CLIENT_PREALLOCATE=false")
+
+    return config_info
+
+
+def get_device_info() -> dict:
+    """
+    Get information about available compute devices.
+    Must be called AFTER importing JAX.
+
+    Returns:
+        Dict with device information.
+    """
+    import jax
+
+    devices = jax.devices()
+    device_info = {
+        "num_devices": len(devices),
+        "devices": [],
+        "default_backend": jax.default_backend(),
+        "using_gpu": jax.default_backend() == "gpu"
+    }
+
+    for d in devices:
+        device_info["devices"].append({
+            "id": d.id,
+            "platform": d.platform,
+            "device_kind": d.device_kind if hasattr(d, 'device_kind') else str(d),
+        })
+
+    return device_info
+
+
+def parse_gpu_args():
+    """
+    Pre-parse GPU-related arguments before full argument parsing.
+    This allows GPU configuration before JAX import.
+    """
+    # Simple pre-parse for GPU args only
+    gpu_id = None
+    mem_fraction = None
+    preallocate = True
+
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] in ('--gpu', '-g') and i + 1 < len(args):
+            try:
+                gpu_id = int(args[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif args[i] == '--gpu_mem_fraction' and i + 1 < len(args):
+            try:
+                mem_fraction = float(args[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif args[i] == '--no_gpu_preallocate':
+            preallocate = False
+            i += 1
+        elif args[i] == '--cpu':
+            # Force CPU mode
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            gpu_id = -1  # Signal CPU mode
+            i += 1
+        else:
+            i += 1
+
+    return gpu_id, mem_fraction, preallocate
+
+
+# Pre-parse GPU args and configure environment before JAX import
+_gpu_id, _mem_fraction, _preallocate = parse_gpu_args()
+_gpu_config = configure_gpu(_gpu_id, _mem_fraction, _preallocate)
+
+# Re-exec with proper LD_LIBRARY_PATH if needed for GPU support
+check_gpu_env_and_reexec()
+
+# Store nvidia lib paths info
+_gpu_config["nvidia_lib_paths"] = get_nvidia_lib_paths()
+
+# ==============================================================================
 # Minimal Imports (only essential packages)
 # ==============================================================================
-import argparse
 from pathlib import Path
 from typing import Union, Optional, Dict, Any, List
 import json
-import sys
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -31,6 +253,9 @@ import jax.numpy as jnp
 import jax
 from colabdesign import mk_afdesign_model, clear_mem
 from colabdesign.af.alphafold.common import residue_constants
+
+# Get device info after JAX import
+_device_info = get_device_info()
 
 # ==============================================================================
 # Configuration (extracted from use case)
@@ -240,11 +465,16 @@ def run_predict_cyclic_structure(
         output_path = Path(output_file)
         af_model.save_pdb(str(output_path))
 
-        # Save metadata
+        # Save metadata with device info
         metadata = {
             "length": af_model._len,
             "config": config,
-            "protocol": "hallucination"
+            "protocol": "hallucination",
+            "device": {
+                "backend": _device_info["default_backend"],
+                "using_gpu": _device_info["using_gpu"],
+                "devices": _device_info["devices"]
+            }
         }
         save_output(str(output_path), sequences, metrics, metadata)
 
@@ -258,7 +488,12 @@ def run_predict_cyclic_structure(
         "metadata": {
             "length": af_model._len,
             "config": config,
-            "protocol": "hallucination"
+            "protocol": "hallucination",
+            "device": {
+                "backend": _device_info["default_backend"],
+                "using_gpu": _device_info["using_gpu"],
+                "devices": _device_info["devices"]
+            }
         }
     }
 
@@ -295,6 +530,17 @@ def main():
                        help='Iterations for soft pre-design (default: 50)')
     parser.add_argument('--stage_iters', type=int, nargs=3, default=[50, 50, 10],
                        help='Iterations for 3-stage design: logits soft hard (default: 50 50 10)')
+
+    # GPU parameters (pre-parsed, but included for help text)
+    gpu_group = parser.add_argument_group('GPU options')
+    gpu_group.add_argument('--gpu', '-g', type=int, metavar='ID',
+                          help='GPU device ID to use (0, 1, etc.). Omit for auto-select.')
+    gpu_group.add_argument('--gpu_mem_fraction', type=float, metavar='FRAC',
+                          help='Fraction of GPU memory to use (0.0-1.0, e.g., 0.8 for 80%%)')
+    gpu_group.add_argument('--no_gpu_preallocate', action="store_true",
+                          help='Disable GPU memory preallocation (more flexible but slower)')
+    gpu_group.add_argument('--cpu', action="store_true",
+                          help='Force CPU mode (ignore available GPUs)')
 
     parser.add_argument('--quiet', action="store_true",
                        help='Suppress verbose output')
@@ -333,6 +579,18 @@ def main():
                 print(f"Output: {args.output}")
             if args.add_rg:
                 print(f"Radius of gyration constraint: weight={args.rg_weight}")
+
+            # Display device info
+            print(f"\n--- Device Configuration ---")
+            print(f"Backend: {_device_info['default_backend'].upper()}")
+            if _device_info['using_gpu']:
+                for dev in _device_info['devices']:
+                    print(f"Device {dev['id']}: {dev['device_kind']} ({dev['platform']})")
+            else:
+                print("Running on CPU")
+            if _gpu_config['env_vars_set']:
+                print(f"GPU config: {', '.join(_gpu_config['env_vars_set'])}")
+            print()
 
         # Run prediction
         result = run_predict_cyclic_structure(

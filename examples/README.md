@@ -1,106 +1,98 @@
-# AfCycDesign Examples
+# Cyclic Peptide Design Examples
 
-This directory contains standalone Python scripts demonstrating cyclic peptide structure prediction and design using AlphaFold (AfCycDesign).
+Example configurations and data for reproducing cyclic peptide structure predictions.
 
-## Use Cases
+## Directory Structure
 
-### UC-001: Cyclic Peptide Fixed Backbone Design
-**Script**: `use_case_1_cyclic_fixbb_design.py`
-**Description**: Redesigns amino acid sequences for known cyclic peptide backbone structures while maintaining head-to-tail cyclization.
-
-**Example Usage**:
-```bash
-# Design sequence for PDB structure 7m28 chain A
-python use_case_1_cyclic_fixbb_design.py --pdb_code 7m28 --chain A --output designed_cyclic.pdb
-
-# Use local PDB file with radius of gyration constraint
-python use_case_1_cyclic_fixbb_design.py --pdb data/structures/1P3J.pdb --chain A --add_rg --output compact_design.pdb
+```
+example/
+├── README.md
+├── data/
+│   ├── config_quick_test.json      # Fast testing config (reduced iterations)
+│   ├── config_production.json      # High-quality production config
+│   ├── config_compact_peptide.json # Compact structure with Rg constraint
+│   └── example_8mer.pdb            # Example output structure
+└── outputs/                        # Generated outputs go here
 ```
 
-### UC-002: Cyclic Peptide Hallucination
-**Script**: `use_case_2_cyclic_hallucination.py`
-**Description**: Generates novel cyclic peptide structures from scratch for a given length with head-to-tail cyclization constraints.
+## Quick Start
 
-**Example Usage**:
-```bash
-# Generate 13-residue cyclic peptide (no cysteines)
-python use_case_2_cyclic_hallucination.py --length 13 --output hallucinated_13mer.pdb
-
-# Generate compact 15-residue peptide with RG constraint, excluding cysteine and methionine
-python use_case_2_cyclic_hallucination.py --length 15 --rm_aa "C,M" --add_rg --output compact_15mer.pdb
-```
-
-### UC-003: Cyclic Peptide Binder Design
-**Script**: `use_case_3_cyclic_binder_design.py`
-**Description**: Designs cyclic peptide binders that bind to target protein structures while maintaining cyclization.
-
-**Example Usage**:
-```bash
-# Design 14-residue cyclic binder for protein 4N5T chain A
-python use_case_3_cyclic_binder_design.py --pdb_code 4N5T --target_chain A --binder_len 14 --output cyclic_binder.pdb
-
-# Design with specific hotspot targeting
-python use_case_3_cyclic_binder_design.py --pdb data/structures/1O91.pdb --target_chain A --binder_len 12 --hotspot "1-10,15" --output specific_binder.pdb
-```
-
-## Demo Data
-
-### Structures (`data/structures/`)
-- `1O91.pdb` - Example protein structure for target binding
-- `1P3J.pdb` - Example protein structure for backbone design
-
-### Sequences (`data/sequences/`)
-- `sample_cyclic_peptides.txt` - Example cyclic peptide sequences with annotations
-
-## Requirements
-
-All scripts require the conda environment with ColabDesign installed. Activate the environment before running:
+### 1. Basic 8-mer prediction (CPU)
 
 ```bash
-# Activate the environment
-conda activate ./env
-
-# Run any example script
-python use_case_1_cyclic_fixbb_design.py --help
+cd /path/to/tool-mcps/afcycdesign_mcp
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py \
+  --length 8 \
+  --output example/outputs/test_8mer.pdb \
+  --config example/data/config_quick_test.json
 ```
 
-## Common Parameters
+### 2. GPU-accelerated prediction
 
-### General Options
-- `--output` - Output PDB file path
-- `--quiet` - Suppress verbose output
-- `--num_recycles` - Number of AlphaFold recycles (0-6, default: 0)
+```bash
+# Use GPU 0
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py \
+  --length 8 \
+  --output example/outputs/gpu_8mer.pdb \
+  --gpu 0
 
-### Cyclic Constraints
-- `--offset_type` - Type of cyclic offset (1, 2, or 3, default: 2)
-- `--add_rg` - Add radius of gyration loss for compact structures
-- `--rg_weight` - Weight for RG loss (default: 0.1)
+# Use GPU 1 with memory limit
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py \
+  --length 12 \
+  --output example/outputs/gpu_12mer.pdb \
+  --gpu 1 \
+  --gpu_mem_fraction 0.8
+```
 
-### Sequence Control
-- `--rm_aa` - Amino acids to exclude (e.g., "C" or "C,M")
+### 3. Compact peptide with Rg constraint
 
-## Expected Outputs
+```bash
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py \
+  --length 10 \
+  --output example/outputs/compact_10mer.pdb \
+  --config example/data/config_compact_peptide.json \
+  --gpu 0
+```
 
-Each script produces:
-1. **PDB file** - 3D structure of the designed cyclic peptide
-2. **Sequences** - Designed amino acid sequences
-3. **Metrics** - Quality metrics (pLDDT, PAE, contacts, etc.)
+### 4. Production-quality prediction
 
-## Troubleshooting
+```bash
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py \
+  --length 8 \
+  --output example/outputs/production_8mer.pdb \
+  --config example/data/config_production.json \
+  --gpu 0
+```
 
-### Memory Issues
-If you encounter GPU memory issues:
-- Reduce `--num_models` parameter
-- Use `--num_recycles 0`
-- Try shorter peptide lengths
+## Configuration Options
 
-### AlphaFold Weights
-Scripts may download AlphaFold weights on first run (~2.3GB). Ensure sufficient disk space and internet connection.
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `rm_aa` | Amino acids to exclude (comma-separated) | `"C"` |
+| `offset_type` | Cyclic offset type (1, 2, or 3) | `2` |
+| `add_rg` | Add radius of gyration constraint | `false` |
+| `rg_weight` | Weight for Rg loss term | `0.1` |
+| `num_recycles` | Number of AlphaFold recycles | `0` |
+| `soft_iters` | Soft pre-optimization iterations | `50` |
+| `stage_iters` | 3-stage iterations [logits, soft, hard] | `[50, 50, 10]` |
+| `contact_cutoff` | Contact distance cutoff | `21.6875` |
+| `loss_weights` | Weights for pae, plddt, con losses | `{pae:1, plddt:1, con:0.5}` |
 
-### CUDA Issues
-If JAX CUDA installation is incomplete, the scripts will fall back to CPU mode (slower but functional).
+## GPU Options
 
-## References
+| Option | Description |
+|--------|-------------|
+| `--gpu ID` | GPU device ID (0, 1, etc.) |
+| `--gpu_mem_fraction FRAC` | Fraction of GPU memory to use (0.0-1.0) |
+| `--no_gpu_preallocate` | Disable GPU memory preallocation |
+| `--cpu` | Force CPU mode |
 
-- **AfCycDesign Paper**: Stephen Rettie et al., "Cyclic peptide structure prediction and design using AlphaFold", doi: https://doi.org/10.1101/2023.02.25.529956
-- **ColabDesign**: https://github.com/sokrypton/ColabDesign
+## Expected Output
+
+Each run produces:
+1. **PDB file**: 3D structure of the cyclic peptide
+2. **JSON file**: Metadata including sequence, metrics, and configuration
+
+Example metrics:
+- **pLDDT**: Predicted Local Distance Difference Test (>0.70 is good, >0.90 is excellent)
+- **PAE**: Predicted Aligned Error (<0.30 is good, <0.10 is excellent)
