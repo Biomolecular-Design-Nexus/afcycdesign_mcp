@@ -91,11 +91,13 @@ The script supports two modes:
 
 ```bash
 # Redesign sequence for existing backbone
-python scripts/design_cyclic_sequence.py \
-  --input examples/data/test_backbone.pdb \
-  --chain A \
-  --output results/redesigned.pdb \
-  --iterations 100
+ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/design_cyclic_sequence.py \                                          
+    --input examples/data/test_backbone.pdb \                                                                               
+    --chain A \                                                                                                             
+    --output results/redesigned.pdb \                                                                                       
+    --iterations 100 \                                                                                                      
+    --gpu 0 
+
 
 # Partial redesign (specific positions only)
 python scripts/design_cyclic_sequence.py \
@@ -144,22 +146,6 @@ claude mcp add cycpep-tools -- $(pwd)/env/bin/python $(pwd)/src/server.py
 claude mcp list
 ```
 
-### Option 3: Configure in settings.json
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "cycpep-tools": {
-      "command": "/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/env/bin/python",
-      "args": ["/home/xux/Desktop/CycPepMCP/CycPepMCP/tool-mcps/afcycdesign_mcp/src/server.py"]
-    }
-  }
-}
-```
-
----
 
 ## Using with Claude Code
 
