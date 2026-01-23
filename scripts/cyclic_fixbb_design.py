@@ -154,7 +154,8 @@ def get_pdb_file(pdb_input):
 
 def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False,
                                rg_weight=0.1, output_file="cyclic_fixbb_designed.pdb",
-                               num_recycles=0, stage_iters=(50, 50, 10), verbose=True):
+                               num_recycles=0, stage_iters=(50, 50, 10), data_dir=None,
+                               verbose=True):
     """
     Design a new sequence for a cyclic peptide backbone structure.
 
@@ -178,6 +179,7 @@ def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False
         num_recycles: Number of recycles for AlphaFold
         stage_iters: Iterations for 3-stage design (logits, soft, hard)
                     Default: (50, 50, 10) = 110 steps total as per paper
+        data_dir: Directory containing AlphaFold model parameters (default: auto-detect)
         verbose: Whether to print progress
 
     Returns:
@@ -186,9 +188,13 @@ def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False
     # Clear previous models
     clear_mem()
 
+    # Set default data_dir to project root (parent of scripts/)
+    if data_dir is None:
+        data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     # Initialize model for fixed backbone design
     # The fixbb protocol uses CCE loss between target and predicted distograms
-    af_model = mk_afdesign_model(protocol="fixbb", num_recycles=num_recycles)
+    af_model = mk_afdesign_model(protocol="fixbb", num_recycles=num_recycles, data_dir=data_dir)
 
     if verbose:
         print("=" * 60)
@@ -276,6 +282,10 @@ def main():
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress verbose output")
 
+    # Model parameters directory
+    parser.add_argument("--data_dir", type=str, default=None,
+                       help="Directory containing AlphaFold params/ folder (default: auto-detect)")
+
     # GPU arguments (parsed early by gpu_utils, included here for --help)
     parser.add_argument("--gpu", type=int, metavar="ID",
                        help="GPU device ID to use (0, 1, etc.)")
@@ -307,6 +317,7 @@ def main():
             output_file=args.output,
             num_recycles=args.num_recycles,
             stage_iters=tuple(args.stage_iters),
+            data_dir=args.data_dir,
             verbose=not args.quiet
         )
 

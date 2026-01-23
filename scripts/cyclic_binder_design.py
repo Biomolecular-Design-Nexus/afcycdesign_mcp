@@ -160,7 +160,7 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
                                 target_flexible=False, use_multimer=False,
                                 optimizer="pssm_semigreedy", num_recycles=0,
                                 num_models=2, output_file="cyclic_binder.pdb",
-                                ipae_threshold=0.15, verbose=True):
+                                ipae_threshold=0.15, data_dir=None, verbose=True):
     """
     Design a cyclic peptide binder for a target protein structure.
 
@@ -195,6 +195,7 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
         num_models: Number of models to use
         output_file: Output PDB file path
         ipae_threshold: Interface PAE threshold for quality filtering (default: 0.15)
+        data_dir: Directory containing AlphaFold model parameters (default: auto-detect)
         verbose: Whether to print progress
 
     Returns:
@@ -202,6 +203,10 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
     """
     # Clear previous models
     clear_mem()
+
+    # Set default data_dir to project root (parent of scripts/)
+    if data_dir is None:
+        data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # Process binder sequence if provided
     if binder_seq:
@@ -226,7 +231,8 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
         protocol="binder",
         use_multimer=use_multimer,
         num_recycles=num_recycles,
-        recycle_mode="sample"
+        recycle_mode="sample",
+        data_dir=data_dir
     )
 
     model.prep_inputs(**x, ignore_missing=False)
@@ -397,6 +403,10 @@ def main():
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress verbose output")
 
+    # Model parameters directory
+    parser.add_argument("--data_dir", type=str, default=None,
+                       help="Directory containing AlphaFold params/ folder (default: auto-detect)")
+
     # GPU arguments (parsed early by gpu_utils, included here for --help)
     parser.add_argument("--gpu", type=int, metavar="ID",
                        help="GPU device ID to use (0, 1, etc.)")
@@ -434,6 +444,7 @@ def main():
             num_models=args.num_models,
             output_file=args.output,
             ipae_threshold=args.ipae_threshold,
+            data_dir=args.data_dir,
             verbose=not args.quiet
         )
 

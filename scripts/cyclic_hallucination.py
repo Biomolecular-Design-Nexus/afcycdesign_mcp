@@ -126,7 +126,7 @@ def add_rg_loss(model, weight=0.1):
 def hallucinate_cyclic_peptide(length=13, rm_aa="C", add_rg=False, rg_weight=0.1,
                               offset_type=2, output_file="cyclic_hallucinated.pdb",
                               num_recycles=0, soft_iters=50, stage_iters=(50, 50, 10),
-                              plddt_threshold=0.9, verbose=True):
+                              plddt_threshold=0.9, data_dir=None, verbose=True):
     """
     Hallucinate a cyclic peptide structure from scratch (de novo design).
 
@@ -154,6 +154,7 @@ def hallucinate_cyclic_peptide(length=13, rm_aa="C", add_rg=False, rg_weight=0.1
         soft_iters: Iterations for soft pre-design (default: 50)
         stage_iters: Iterations for 3-stage design (default: 50, 50, 10)
         plddt_threshold: Quality threshold for filtering (default: 0.9 as per paper)
+        data_dir: Directory containing AlphaFold model parameters (default: auto-detect)
         verbose: Whether to print progress
 
     Returns:
@@ -162,8 +163,12 @@ def hallucinate_cyclic_peptide(length=13, rm_aa="C", add_rg=False, rg_weight=0.1
     # Clear previous models
     clear_mem()
 
+    # Set default data_dir to project root (parent of scripts/)
+    if data_dir is None:
+        data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     # Initialize model for hallucination
-    af_model = mk_afdesign_model(protocol="hallucination", num_recycles=num_recycles)
+    af_model = mk_afdesign_model(protocol="hallucination", num_recycles=num_recycles, data_dir=data_dir)
 
     if verbose:
         print("=" * 60)
@@ -310,6 +315,10 @@ def main():
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress verbose output")
 
+    # Model parameters directory
+    parser.add_argument("--data_dir", type=str, default=None,
+                       help="Directory containing AlphaFold params/ folder (default: auto-detect)")
+
     # GPU arguments (parsed early by gpu_utils, included here for --help)
     parser.add_argument("--gpu", type=int, metavar="ID",
                        help="GPU device ID to use (0, 1, etc.)")
@@ -344,6 +353,7 @@ def main():
             soft_iters=args.soft_iters,
             stage_iters=tuple(args.stage_iters),
             plddt_threshold=args.plddt_threshold,
+            data_dir=args.data_dir,
             verbose=not args.quiet
         )
 

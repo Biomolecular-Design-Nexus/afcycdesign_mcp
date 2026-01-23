@@ -152,6 +152,7 @@ def predict_cyclic_structure(
     rg_weight: float = 0.1,
     soft_iters: int = 0,
     output_file: str = "predicted_cyclic.pdb",
+    data_dir: str = None,
     verbose: bool = True
 ) -> dict:
     """
@@ -174,6 +175,7 @@ def predict_cyclic_structure(
         rg_weight: Weight for Rg loss (default: 0.1)
         soft_iters: Number of soft optimization iterations (0 = just predict, >0 = refine structure)
         output_file: Output PDB file path
+        data_dir: Directory containing AlphaFold model parameters (default: auto-detect)
         verbose: Whether to print progress
 
     Returns:
@@ -206,11 +208,16 @@ def predict_cyclic_structure(
     # Clear previous models
     clear_mem()
 
+    # Set default data_dir to project root (parent of scripts/)
+    if data_dir is None:
+        data_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     # Initialize model for hallucination protocol (used for structure prediction)
     af_model = mk_afdesign_model(
         protocol="hallucination",
         num_recycles=num_recycles,
-        use_templates=False
+        use_templates=False,
+        data_dir=data_dir
     )
 
     # Prepare inputs with the given sequence length
@@ -363,6 +370,10 @@ Benchmark Sequences (from paper):
     parser.add_argument("--quiet", "-q", action="store_true",
                        help="Suppress verbose output")
 
+    # Model parameters directory
+    parser.add_argument("--data_dir", type=str, default=None,
+                       help="Directory containing AlphaFold params/ folder (default: auto-detect)")
+
     # GPU arguments (parsed early by gpu_utils, included here for --help)
     parser.add_argument("--gpu", type=int, metavar="ID",
                        help="GPU device ID to use (0, 1, etc.)")
@@ -388,6 +399,7 @@ Benchmark Sequences (from paper):
             rg_weight=args.rg_weight,
             soft_iters=args.soft_iters,
             output_file=args.output,
+            data_dir=args.data_dir,
             verbose=not args.quiet
         )
 

@@ -115,6 +115,23 @@ def get_queue_info() -> dict:
     return job_manager.get_queue_info()
 
 
+@mcp.tool()
+def resubmit_job(job_id: str) -> dict:
+    """
+    Resubmit a failed or cancelled job.
+
+    Creates a new job with the same parameters as the original.
+    Useful for retrying jobs that failed due to server restarts or transient errors.
+
+    Args:
+        job_id: The job ID of the failed/cancelled job to resubmit
+
+    Returns:
+        Dictionary with new job_id and queue position, or error if job cannot be resubmitted
+    """
+    return job_manager.resubmit_job(job_id)
+
+
 # ==============================================================================
 # Tool 1: Cyclic Peptide Structure Prediction
 # ==============================================================================
@@ -496,7 +513,8 @@ def get_server_info() -> dict:
                 "get_job_log",
                 "cancel_job",
                 "list_jobs",
-                "get_queue_info"
+                "get_queue_info",
+                "resubmit_job"
             ],
             "utilities": [
                 "validate_pdb_file",

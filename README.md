@@ -8,22 +8,38 @@
 - [Local Usage (Scripts)](#local-usage-scripts)
 - [MCP Server Installation](#mcp-server-installation)
 - [Using with Claude Code](#using-with-claude-code)
-- [Using with Gemini CLI](#using-with-gemini-cli)
 - [Available Tools](#available-tools)
-- [Examples](#examples)
-- [Troubleshooting](#troubleshooting)
 
 ## Overview
 
 This MCP server provides computational tools for cyclic peptide structure prediction, sequence design, and binder development using the ColabDesign framework. The server offers both fast synchronous operations and long-running asynchronous jobs for comprehensive cyclic peptide research workflows.
 
 ### Features
-- **3D Structure Prediction**: Predict cyclic peptide using AlphaFold2
-- **Sequence Design**: Redesign amino acid sequences for given cyclic backbone structures
-- **Binder Development**: Design cyclic peptide binders that bind to target protein structures
-- **Batch Processing**: Generate multiple peptides with different parameters in parallel
-- **Job Management**: Track long-running computations with status monitoring and log access
-- **Quality Assessment**: Comprehensive structural quality metrics (pLDDT, PAE, contacts)
+
+#### Design Tools
+| Tool | Description |
+|------|-------------|
+| `submit_structure_prediction` | Predict 3D structure of a cyclic peptide from amino acid sequence using AlphaFold with cyclic offset constraints |
+| `submit_fixbb_design` | Redesign amino acid sequence for a given cyclic backbone structure using distogram-based optimization |
+| `submit_hallucination` | De novo generation of both cyclic peptide structure and sequence from scratch |
+| `submit_binder_design` | Design cyclic peptides that bind to target protein structures |
+
+#### Job Management Tools
+| Tool | Description |
+|------|-------------|
+| `get_job_status` | Get status, timestamps, queue position, and errors for a submitted job |
+| `get_job_result` | Retrieve output PDB file path and results from a completed job |
+| `get_job_log` | Get log output from a running or completed job |
+| `list_jobs` | List all submitted jobs with optional status filtering |
+| `get_queue_info` | Get current queue size, running job, and job counts by status |
+| `cancel_job` | Cancel a pending or running job |
+| `resubmit_job` | Resubmit a failed or cancelled job with the same parameters |
+
+#### Utility Tools
+| Tool | Description |
+|------|-------------|
+| `validate_pdb_file` | Validate PDB file structure and get chain/residue information |
+| `get_server_info` | Get server information and list of available tools |
 
 
 ## Installation
