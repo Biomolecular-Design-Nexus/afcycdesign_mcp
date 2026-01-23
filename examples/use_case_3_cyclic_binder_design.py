@@ -1,23 +1,70 @@
 #!/usr/bin/env python3
 """
-Cyclic Peptide Binder Design
+Use Case 3: Cyclic Peptide Binder Design (Motif Grafting)
 
-This script designs cyclic peptide binders that bind to a target protein structure.
-The designed peptide will have head-to-tail cyclization while maximizing contacts
-at the interface and pLDDT of the binder.
+This is the most complex workflow, used to design cyclic peptide binders for
+protein targets like MDM2 or Keap1.
 
 Based on: peptide_binder_design.ipynb with cyclic modifications
-Reference: ColabDesign peptide binder hallucination workflow
+Reference: Stephen Rettie et al., doi: https://doi.org/10.1101/2023.02.25.529956
+
+Key Parameters (from paper):
+- Input Files:
+  - Target Protein PDB: e.g., MDM2 (4HFZ), Keap1 (2FLU)
+  - Binding Motif: Short functional segments (p53 motif FSDLW, Nrf2 hot loop DEETGE)
+  - Scaffold Library: ~24,000 hallucinated cyclic peptides with pLDDT > 0.9
+
+- Grafting: Rosetta MotifGraft with 1.0 A RMSD tolerance
+
+- Sequence Design: 3-4 iterative rounds of:
+  - ProteinMPNN for sequence optimization
+  - Rosetta energy minimization (REF2015 score function)
+
+- Filtering Metrics:
+  - iPAE (Interface PAE): < 0.11 or 0.15
+  - ddG: < -30 kcal/mol
+  - SAP score: < 30
+  - CMS (Contact Molecular Surface): > 300
+  - Binding mode RMSD: < 1.5 A
+
+Workflow (from paper):
+1. Graft the functional motif onto stable hallucinated scaffolds
+2. Redesign non-motif residues using ProteinMPNN
+3. Use AfCycDesign to predict target-peptide complex
+   (apply cyclic offset ONLY to binder chain)
+4. Verify binding mode via iPAE and RMSD < 1.5 A
 
 Usage:
-    python use_case_3_cyclic_binder_design.py --pdb 4N5T --target_chain A --binder_len 14 --output cyclic_binder.pdb
-    python use_case_3_cyclic_binder_design.py --pdb input.pdb --target_chain A --binder_len 12 --hotspot "1-10,15" --output specific_binder.pdb
+    # Basic binder design
+    python use_case_3_cyclic_binder_design.py --pdb 4HFZ --target_chain A --binder_len 14 --output mdm2_binder.pdb
+
+    # Target specific hotspot residues
+    python use_case_3_cyclic_binder_design.py --pdb 2FLU --target_chain A --binder_len 12 --hotspot "20-30" --output keap1_binder.pdb
+
+    # With initial motif sequence
+    python use_case_3_cyclic_binder_design.py --pdb 4HFZ --target_chain A --binder_seq "FSDLWKLLPEN" --output motif_binder.pdb
+
+    # Use GPU
+    python use_case_3_cyclic_binder_design.py --pdb 4HFZ --target_chain A --binder_len 12 --gpu 0 --output gpu_binder.pdb
 """
 
-import argparse
+# ==============================================================================
+# GPU Configuration (MUST be set before importing JAX)
+# ==============================================================================
 import os
 import sys
+
+# Add examples directory to path for gpu_utils import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gpu_utils import auto_setup_gpu
+auto_setup_gpu()
+
+# ==============================================================================
+# Now safe to import JAX and other libraries
+# ==============================================================================
+import argparse
 import warnings
+import re
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import numpy as np
@@ -27,7 +74,6 @@ from colabdesign import mk_afdesign_model, clear_mem
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict
 from scipy.special import softmax
-import re
 
 
 def add_cyclic_offset(model, offset_type=2):
@@ -98,20 +144,49 @@ def get_pdb_file(pdb_input):
         return af_file
 
 
+# Paper-recommended filtering thresholds
+FILTERING_THRESHOLDS = {
+    "ipae": 0.15,         # Interface PAE: < 0.15 (or 0.11 for strict)
+    "ipae_strict": 0.11,  # Strict iPAE threshold
+    "ddg": -30.0,         # ddG: < -30 kcal/mol
+    "sap": 30.0,          # SAP score: < 30
+    "cms": 300.0,         # CMS: > 300
+    "rmsd": 1.5,          # Binding mode RMSD: < 1.5 A
+}
+
+
 def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
                                 binder_seq=None, target_hotspot=None,
                                 target_flexible=False, use_multimer=False,
                                 optimizer="pssm_semigreedy", num_recycles=0,
                                 num_models=2, output_file="cyclic_binder.pdb",
-                                verbose=True):
+                                ipae_threshold=0.15, verbose=True):
     """
     Design a cyclic peptide binder for a target protein structure.
+
+    This is Use Case 4 from the AfCycDesign paper: Peptide Binder Design (Motif Grafting).
+
+    The workflow designs cyclic peptides that bind to protein targets with the
+    cyclic offset applied ONLY to the binder chain (not the target).
+
+    Paper-recommended workflow:
+    1. Graft functional motif onto stable hallucinated scaffolds
+    2. Redesign non-motif residues using ProteinMPNN
+    3. Predict target-peptide complex with AfCycDesign
+    4. Verify binding mode via iPAE and RMSD < 1.5 A
+
+    Filtering thresholds (from paper):
+    - iPAE < 0.15 (or 0.11 for strict)
+    - ddG < -30 kcal/mol
+    - SAP < 30
+    - CMS > 300
+    - RMSD < 1.5 A
 
     Args:
         pdb_file: Path to target protein PDB file
         target_chain: Chain ID of target protein
         binder_len: Length of binder peptide to design
-        binder_seq: Initial binder sequence (optional)
+        binder_seq: Initial binder sequence (e.g., motif like "FSDLW")
         target_hotspot: Restrict binding to specific positions (e.g., "1-10,12,15")
         target_flexible: Allow target backbone flexibility
         use_multimer: Use AlphaFold-multimer
@@ -119,10 +194,11 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
         num_recycles: Number of AF2 recycles
         num_models: Number of models to use
         output_file: Output PDB file path
+        ipae_threshold: Interface PAE threshold for quality filtering (default: 0.15)
         verbose: Whether to print progress
 
     Returns:
-        dict: Results including sequences and metrics
+        dict: Results including sequences, metrics, and quality assessment
     """
     # Clear previous models
     clear_mem()
@@ -155,13 +231,24 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
 
     model.prep_inputs(**x, ignore_missing=False)
 
-    # Add cyclic constraint for binder
+    # Add cyclic constraint for binder ONLY (not target)
+    # This is a key distinction from the paper - cyclic offset applies only to binder chain
     add_cyclic_offset(model, offset_type=2)
 
     if verbose:
+        print("=" * 60)
+        print("AfCycDesign: Binder Design (Use Case 3)")
+        print("=" * 60)
+        print(f"Target PDB: {pdb_file}")
+        print(f"Target chain: {target_chain}")
         print(f"Target length: {model._target_len}")
         print(f"Binder length: {model._binder_len}")
         print(f"Hotspot: {target_hotspot or 'None (full interface)'}")
+        print(f"Optimizer: {optimizer}")
+        print(f"iPAE threshold: < {ipae_threshold}")
+        print("")
+        print("NOTE: Cyclic offset applied to binder chain ONLY (not target)")
+        print("=" * 60)
 
     # Set optimizer and models
     models = model._model_names[:num_models]
@@ -217,10 +304,38 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
     # Save results
     model.save_pdb(output_file)
 
+    # Get metrics
+    best_aux = model._tmp.get("best", {}).get("aux", {})
+    metrics = best_aux.get("log", {})
+
+    # Extract key metrics for quality assessment
+    plddt = metrics.get("plddt", 0)
+    pae = metrics.get("pae", 1)
+    i_pae = metrics.get("i_pae", metrics.get("pae", 1))  # Interface PAE
+    i_con = metrics.get("i_con", 0)  # Interface contacts
+
+    # Quality assessment based on paper thresholds
+    # iPAE < 0.15 (or 0.11 for strict)
+    passes_ipae = i_pae < ipae_threshold
+
     if verbose:
-        print(f"Binder design complete! Saved to: {output_file}")
-        if "log" in model._tmp.get("best", {}).get("aux", {}):
-            print(f"Final metrics: {model._tmp['best']['aux']['log']}")
+        print(f"\n{'=' * 60}")
+        print("RESULTS")
+        print("=" * 60)
+        print(f"Output file: {output_file}")
+        print(f"\nMetrics:")
+        print(f"  pLDDT: {plddt:.3f}")
+        print(f"  PAE: {pae:.3f}")
+        print(f"  iPAE (Interface PAE): {i_pae:.3f}")
+        print(f"  Interface contacts: {i_con:.3f}")
+        print(f"\nQuality Assessment (Paper Thresholds):")
+        print(f"  iPAE < {ipae_threshold}: {'PASS' if passes_ipae else 'FAIL'}")
+        print(f"\nNote: For full validation, also check:")
+        print(f"  - ddG < -30 kcal/mol (Rosetta)")
+        print(f"  - SAP < 30 (Rosetta)")
+        print(f"  - CMS > 300 (Rosetta)")
+        print(f"  - Binding mode RMSD < 1.5 A")
+        print("=" * 60)
 
     # Get designed sequences
     sequences = model.get_seqs()
@@ -231,11 +346,19 @@ def design_cyclic_peptide_binder(pdb_file, target_chain="A", binder_len=14,
         "target_len": model._target_len,
         "binder_len": model._binder_len,
         "pssm": pssm,
+        "metrics": {
+            "plddt": float(plddt),
+            "pae": float(pae),
+            "i_pae": float(i_pae),
+            "i_con": float(i_con),
+        },
+        "quality": {
+            "passes_ipae": passes_ipae,
+            "ipae_threshold": ipae_threshold,
+        },
+        "filtering_thresholds": FILTERING_THRESHOLDS,
         "model": model
     }
-
-    if "best" in model._tmp and "aux" in model._tmp["best"]:
-        results["metrics"] = model._tmp["best"]["aux"].get("log", {})
 
     return results
 
@@ -269,6 +392,8 @@ def main():
                        help="Number of models to use (default: 2)")
     parser.add_argument("--output", type=str, default="cyclic_binder.pdb",
                        help="Output PDB file (default: cyclic_binder.pdb)")
+    parser.add_argument("--ipae_threshold", type=float, default=0.15,
+                       help="Interface PAE threshold for quality filtering (default: 0.15, use 0.11 for strict)")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress verbose output")
 
@@ -302,31 +427,27 @@ def main():
             num_recycles=args.num_recycles,
             num_models=args.num_models,
             output_file=args.output,
+            ipae_threshold=args.ipae_threshold,
             verbose=not args.quiet
         )
 
         if not args.quiet:
-            print("\n=== Results ===")
-            print(f"Target length: {results['target_len']}")
-            print(f"Binder length: {results['binder_len']}")
-
+            print("\n=== Designed Binder Sequences ===")
             for i, seq in enumerate(results["sequences"]):
                 print(f"Binder sequence {i+1}: {seq}")
 
-            # Additional metrics if available
-            if "metrics" in results:
-                metrics = results["metrics"]
-                if "plddt" in metrics:
-                    print(f"pLDDT: {metrics['plddt']:.3f}")
-                if "pae" in metrics:
-                    print(f"PAE: {metrics['pae']:.3f}")
-                if "i_con" in metrics:
-                    print(f"Interface contacts: {metrics['i_con']:.3f}")
+            # Quality summary
+            if results["quality"]["passes_ipae"]:
+                print(f"\nBinder PASSED iPAE filter (< {results['quality']['ipae_threshold']})")
+            else:
+                print(f"\nBinder FAILED iPAE filter (>= {results['quality']['ipae_threshold']})")
 
         return 0
 
     except Exception as e:
+        import traceback
         print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc()
         return 1
 
 

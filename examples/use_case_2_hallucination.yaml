@@ -1,0 +1,105 @@
+# ==============================================================================
+# Use Case 2: De Novo Hallucination Workflow
+# ==============================================================================
+# Simultaneously generates a new cyclic peptide structure and sequence from scratch.
+#
+# Reference: Stephen Rettie et al., doi: https://doi.org/10.1101/2023.02.25.529956
+#
+# When to use:
+#   - Generating novel cyclic peptide scaffolds
+#   - Building scaffold libraries for binder design
+#   - Exploring sequence-structure space for a given length
+#
+# Key features:
+#   - Input: Only peptide length (7-16 residues tested in paper)
+#   - Initialization: Random Gumbel distribution
+#   - Loss: 1 - pLDDT + PAE/31 + con/2
+#   - 3-stage optimization with temperature scaling
+#   - Filter for pLDDT > 0.9 for high-confidence scaffolds
+# ==============================================================================
+
+name: "de_novo_hallucination"
+description: "Generate novel cyclic peptide structure and sequence (Use Case 2)"
+
+# ------------------------------------------------------------------------------
+# Input: Desired peptide length
+# ------------------------------------------------------------------------------
+# Paper successfully tested 7-16 residues
+# The authors generated ~24,000 high-confidence scaffolds for their library
+# ------------------------------------------------------------------------------
+peptide:
+  length: 13                       # Peptide length (7-16 residues recommended)
+  exclude_amino_acids: "C"         # Exclude cysteine to avoid disulfides
+
+# ------------------------------------------------------------------------------
+# Optimization Parameters (from paper)
+# ------------------------------------------------------------------------------
+# Three-stage optimization protocol: 50, 50, 10 steps
+# Loss function: 1 - pLDDT + PAE/31 + con/2
+# Initialization: Random Gumbel distribution
+# Activation: Softmax with temperature scaling from 1.0 down to 0.01
+# ------------------------------------------------------------------------------
+optimization:
+  # Pre-design with Gumbel initialization
+  initialization: "gumbel"         # Random Gumbel distribution
+  soft_iters: 50                   # Soft pre-optimization iterations
+
+  # 3-stage optimization protocol
+  stage_iters: [50, 50, 10]        # [logits, soft, hard] iterations
+
+  # Temperature scaling for softmax activation
+  temp_start: 1.0                  # Starting temperature
+  temp_end: 0.01                   # Ending temperature (annealing)
+
+# ------------------------------------------------------------------------------
+# Loss Function (from paper): 1 - pLDDT + PAE/31 + con/2
+# ------------------------------------------------------------------------------
+loss_weights:
+  plddt: 1.0                       # pLDDT confidence weight
+  pae: 1.0                         # PAE weight (scaled by /31 internally)
+  con: 0.5                         # Contact prediction weight (scaled by /2)
+
+# ------------------------------------------------------------------------------
+# Contact (con) Loss Settings (from paper)
+# ------------------------------------------------------------------------------
+contact:
+  binary: true                     # Binary contact prediction
+  cutoff: 21.6875                  # Contact distance cutoff (Angstroms)
+  num: null                        # Set to length automatically (num = length)
+  seqsep: 0                        # Sequence separation threshold
+
+# ------------------------------------------------------------------------------
+# Cyclic Constraints
+# ------------------------------------------------------------------------------
+# Enable cyclic offset specifically for sequence optimization
+# ------------------------------------------------------------------------------
+constraints:
+  offset_type: 2                   # Signed cyclic offset for head-to-tail
+  add_rg: false                    # Optional: add Rg loss for compactness
+  rg_weight: 0.1                   # Weight for Rg loss (if enabled)
+
+# ------------------------------------------------------------------------------
+# Workflow (from paper):
+#   1. Run 3-stage optimization protocol (50, 50, 10 steps)
+#   2. Enable cyclic offset specifically for sequence optimization
+#   3. Filter resulting scaffolds for pLDDT > 0.9
+# ------------------------------------------------------------------------------
+
+# Quality filtering
+quality:
+  plddt_threshold: 0.9             # pLDDT > 0.9 for high-confidence scaffolds
+  pae_threshold: 0.3               # PAE threshold for quality control
+
+# AlphaFold settings
+alphafold:
+  num_recycles: 0                  # Recycles during optimization
+
+# Output settings
+output:
+  save_metadata: true
+  save_trajectory: false
+
+# GPU settings
+gpu:
+  device: 0
+  mem_fraction: 0.9

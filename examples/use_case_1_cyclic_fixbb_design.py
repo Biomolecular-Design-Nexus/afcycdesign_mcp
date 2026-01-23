@@ -1,21 +1,56 @@
 #!/usr/bin/env python3
 """
-Cyclic Peptide Fixed Backbone Design
+Use Case 1: Cyclic Peptide Fixed Backbone Sequence Redesign (Fixbb)
 
-This script redesigns the amino acid sequence for a given cyclic peptide backbone structure
-while maintaining the cyclization constraint (head-to-tail cyclization).
+This script finds a sequence that maximizes the folding propensity for a specific
+pre-defined cyclic peptide backbone structure.
 
 Based on: af_cyc_design.ipynb - cyclic peptide structure prediction and design using AlphaFold
 Reference: Stephen Rettie et al., doi: https://doi.org/10.1101/2023.02.25.529956
 
+Key Parameters (from paper):
+- Input: Target backbone structure in PDB format (e.g., Rosetta-generated backbones)
+- Optimization: 110-step schedule - Stage 1 (50), Stage 2 (50), Stage 3 (10)
+- Loss Function: Categorical Cross-Entropy (CCE) between target and predicted distograms
+- Optimizer: Start from continuous logits, transition to one-hot using straight-through estimator
+
+Workflow (from paper):
+1. Extract the distogram from the target PDB
+2. Initialize with a random sequence
+3. Iteratively optimize the sequence to minimize CCE loss
+
 Usage:
+    # Basic fixed backbone design
     python use_case_1_cyclic_fixbb_design.py --pdb input.pdb --chain A --output designed_cyclic.pdb
+
+    # Download and design from PDB code
     python use_case_1_cyclic_fixbb_design.py --pdb_code 7m28 --chain A --output designed_cyclic.pdb
+
+    # With compactness constraint
+    python use_case_1_cyclic_fixbb_design.py --pdb input.pdb --add_rg --rg_weight 0.1 --output compact.pdb
+
+    # Paper-recommended 110-step schedule (50, 50, 10)
+    python use_case_1_cyclic_fixbb_design.py --pdb input.pdb --stage_iters 50 50 10 --output optimized.pdb
+
+    # Use GPU
+    python use_case_1_cyclic_fixbb_design.py --pdb input.pdb --gpu 0 --output gpu_design.pdb
 """
 
-import argparse
+# ==============================================================================
+# GPU Configuration (MUST be set before importing JAX)
+# ==============================================================================
 import os
 import sys
+
+# Add examples directory to path for gpu_utils import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gpu_utils import auto_setup_gpu
+auto_setup_gpu()
+
+# ==============================================================================
+# Now safe to import JAX and other libraries
+# ==============================================================================
+import argparse
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -119,18 +154,30 @@ def get_pdb_file(pdb_input):
 
 def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False,
                                rg_weight=0.1, output_file="cyclic_fixbb_designed.pdb",
-                               num_recycles=0, verbose=True):
+                               num_recycles=0, stage_iters=(50, 50, 10), verbose=True):
     """
     Design a new sequence for a cyclic peptide backbone structure.
 
+    This is Use Case 2 from the AfCycDesign paper: Fixed Backbone Sequence Redesign.
+
+    The optimization uses a 3-stage schedule (default 110 steps total):
+    - Stage 1 (logits): Optimize continuous representation
+    - Stage 2 (soft): Softmax activation with temperature scaling
+    - Stage 3 (hard): One-hot encoding with straight-through estimator
+
+    Loss Function: Categorical Cross-Entropy (CCE) between target distogram
+    (extracted from input PDB) and predicted distogram.
+
     Args:
-        pdb_file: Path to input PDB file
+        pdb_file: Path to input PDB file (target backbone)
         chain: Chain ID to use
         offset_type: Type of cyclic offset (1, 2, or 3)
         add_rg: Whether to add radius of gyration loss
         rg_weight: Weight for RG loss
         output_file: Output PDB file path
         num_recycles: Number of recycles for AlphaFold
+        stage_iters: Iterations for 3-stage design (logits, soft, hard)
+                    Default: (50, 50, 10) = 110 steps total as per paper
         verbose: Whether to print progress
 
     Returns:
@@ -140,12 +187,20 @@ def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False
     clear_mem()
 
     # Initialize model for fixed backbone design
+    # The fixbb protocol uses CCE loss between target and predicted distograms
     af_model = mk_afdesign_model(protocol="fixbb", num_recycles=num_recycles)
 
     if verbose:
-        print(f"Loading structure: {pdb_file}, chain: {chain}")
+        print("=" * 60)
+        print("AfCycDesign: Fixed Backbone Sequence Design (Use Case 1)")
+        print("=" * 60)
+        print(f"Input PDB: {pdb_file}")
+        print(f"Chain: {chain}")
+        print(f"Stage iterations: {stage_iters} (total: {sum(stage_iters)} steps)")
+        print("Loss function: CCE (target vs predicted distogram)")
+        print("=" * 60)
 
-    # Prepare inputs
+    # Prepare inputs - this extracts the distogram from the target PDB
     af_model.prep_inputs(pdb_filename=pdb_file, chain=chain)
 
     # Add cyclic offset for head-to-tail cyclization
@@ -156,16 +211,27 @@ def design_cyclic_peptide_fixbb(pdb_file, chain="A", offset_type=2, add_rg=False
         add_rg_loss(af_model, weight=rg_weight)
 
     if verbose:
-        print(f"Peptide length: {af_model._len}")
+        print(f"\nPeptide length: {af_model._len}")
         print(f"Loss weights: {af_model.opt['weights']}")
 
-    # Restart and run design
+    # Initialize with random sequence (as per paper workflow)
     af_model.restart()
 
     if verbose:
-        print("Running 3-stage design optimization...")
+        print("\nWorkflow:")
+        print("  1. Distogram extracted from target PDB")
+        print("  2. Initialized with random sequence")
+        print("  3. Running 3-stage optimization to minimize CCE loss...")
+        print(f"     - Stage 1 (logits): {stage_iters[0]} iterations")
+        print(f"     - Stage 2 (soft):   {stage_iters[1]} iterations")
+        print(f"     - Stage 3 (hard):   {stage_iters[2]} iterations")
+        print("       (uses straight-through estimator for one-hot transition)")
 
-    af_model.design_3stage()
+    # Run 3-stage design with specified iterations
+    # Stage 1: Optimize continuous logits representation
+    # Stage 2: Soft optimization with softmax activation
+    # Stage 3: Hard optimization with straight-through estimator (logits -> one-hot)
+    af_model.design_3stage(*stage_iters)
 
     # Save results
     af_model.save_pdb(output_file)
@@ -205,6 +271,8 @@ def main():
                        help="Weight for RG loss (default: 0.1)")
     parser.add_argument("--num_recycles", type=int, default=0,
                        help="Number of AF2 recycles (default: 0)")
+    parser.add_argument("--stage_iters", type=int, nargs=3, default=[50, 50, 10],
+                       help="Iterations for 3-stage design: logits soft hard (default: 50 50 10, total 110 steps as per paper)")
     parser.add_argument("--quiet", action="store_true",
                        help="Suppress verbose output")
 
@@ -232,6 +300,7 @@ def main():
             rg_weight=args.rg_weight,
             output_file=args.output,
             num_recycles=args.num_recycles,
+            stage_iters=tuple(args.stage_iters),
             verbose=not args.quiet
         )
 
@@ -243,7 +312,9 @@ def main():
         return 0
 
     except Exception as e:
+        import traceback
         print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc()
         return 1
 
 

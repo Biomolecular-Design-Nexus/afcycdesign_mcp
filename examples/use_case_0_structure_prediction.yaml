@@ -1,0 +1,73 @@
+# ==============================================================================
+# Use Case 0: Cyclic Peptide Structure Prediction
+# ==============================================================================
+# Predicts the 3D structure of a known cyclic peptide sequence.
+#
+# Reference: Stephen Rettie et al., doi: https://doi.org/10.1101/2023.02.25.529956
+#
+# When to use:
+#   - You have a known cyclic peptide sequence and want its 3D structure
+#   - Validating computationally designed sequences
+#   - Benchmarking against known crystal structures (1JBL, 2MW0, 2LWV, 5KX1)
+#
+# Key features:
+#   - Uses ColabDesign framework with af_cyc_design modifications
+#   - Custom N x N cyclic offset matrix for relative positional encoding
+#   - Evaluates all 5 AlphaFold2 models (best pLDDT is not always most accurate)
+#   - pLDDT > 0.7 indicates high confidence prediction
+# ==============================================================================
+
+name: "structure_prediction_benchmark"
+description: "Predict 3D structure of cyclic peptide from sequence (Use Case 0)"
+
+# ------------------------------------------------------------------------------
+# Input: Amino acid sequence of the cyclic peptide
+# ------------------------------------------------------------------------------
+# Benchmark sequences from the paper:
+#   1JBL: GFNYGPFGSC (10 residues)
+#   2MW0: FRLLNYYA (8 residues)
+#   2LWV: WTYTYDWFC (9 residues)
+#   5KX1: CWLPCFGDAC (10 residues)
+# ------------------------------------------------------------------------------
+peptide:
+  sequence: "GFNYGPFGSC"          # Sequence to predict (from 1JBL benchmark)
+  # length is automatically determined from sequence
+
+# ------------------------------------------------------------------------------
+# Structure Prediction Parameters (from paper)
+# ------------------------------------------------------------------------------
+prediction:
+  # Architecture: ColabDesign with af_cyc_design modifications
+  num_recycles: 6                  # Paper recommends 6 recycles
+  num_models: 5                    # Evaluate all 5 AlphaFold2 models
+
+  # Features: Random masking and Single Sequence (SS) or MSA
+  use_msa: false                   # Use Single Sequence (set true for MSA)
+  random_masking: true             # Apply random masking during prediction
+
+  # Cyclic offset: Custom N x N matrix for positional encoding
+  # Defines sequence separation between terminal residues as 1 or -1
+  offset_type: 2                   # 2 = signed cyclic offset (recommended)
+
+# ------------------------------------------------------------------------------
+# Workflow (from paper):
+#   1. Apply custom N x N cyclic offset matrix to relative positional encoding
+#   2. Define sequence separation between terminal residues as 1 or -1
+#   3. Run prediction and filter by pLDDT (> 0.7 = high confidence)
+# ------------------------------------------------------------------------------
+
+# Quality thresholds
+quality:
+  plddt_threshold: 0.7             # pLDDT > 0.7 indicates high confidence
+  pae_excellent: 0.10              # PAE < 0.10 is excellent
+  pae_good: 0.30                   # PAE < 0.30 is good
+
+# Output settings
+output:
+  save_metadata: true              # Save JSON metadata alongside PDB
+  save_all_models: false           # Save predictions from all models (not just best)
+
+# GPU settings
+gpu:
+  device: 0                        # GPU device ID (null for auto, -1 for CPU)
+  mem_fraction: 0.9                # Fraction of GPU memory to use

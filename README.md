@@ -57,22 +57,21 @@ You can use the scripts directly without MCP for local processing.
 #### Predict 3D Structure
 
 ```bash
-
-# Structure prediction from sequence (head-to-tail cyclization)
-ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py --config examples/predict_from_sequence.yaml --gpu 0
-
-# Production 12-mer hallucination
-ALPHAFOLD_DATA_DIR=./params ./env/bin/python scripts/predict_cyclic_structure.py --config examples/predict_12mer_production.yaml --gpu 1
-
+mamba activate ./env
+# Basic prediction 
+python examples/use_case_0_structure_prediction.py --benchmark 1JBL --output results/struct_pred_basic_1jbl.pdb
+ 
+# Compact structure with Rg constraint 
+python examples/use_case_0_structure_prediction.py --sequence "RVKDGYPF" --add_rg --rg_weight 0.1 --output results/struct_pred_compact.pdb
+ 
+# Structure refinement with soft optimization
+python examples/use_case_0_structure_prediction.py --sequence "GFNYGPFGSC" --soft_iters 50 --output results/struct_pred_refined.pdb 
 ```
 
 **Parameters:**
-- `--length, -l`: Peptide length (5-50 residues, 8-15 recommended for speed)
-- `--output, -o`: Output PDB file path (default: auto-generated)
-- `--rm_aa`: Amino acids to exclude (default: "C" to avoid disulfides)
+- `--output, -o`: Output PDB file pat
 - `--add_rg`: Add radius of gyration constraint for compact structures
 - `--soft_iters`: Number of optimization iterations (20 for testing, 50+ for production)
-- `--quiet`: Suppress verbose output
 
 ##### Two Prediction Modes
 
@@ -104,6 +103,31 @@ python scripts/design_cyclic_sequence.py \
   --input examples/data/structures/1P3J.pdb \
   --positions "1-5,10-15" \
   --output results/partial_design.pdb
+
+
+ Use Case 1: Fixed Backbone Design
+
+ ./env/bin/python examples/use_case_1_cyclic_fixbb_design.py \
+ --pdb examples/data/structures/1JBL_chainA.pdb --chain A \
+ --stage_iters 50 50 10 --output examples/outputs/redesigned.pdb
+
+ Use Case 2: De Novo Hallucination
+
+ ./env/bin/python examples/use_case_2_cyclic_hallucination.py \
+ --length 12 --rm_aa "C" --plddt_threshold 0.9 \
+ --output examples/outputs/hallucinated.pdb
+
+ Use Case 3: Binder Design
+
+ # MDM2 binder
+ ./env/bin/python examples/use_case_3_cyclic_binder_design.py \
+ --pdb examples/data/structures/4HFZ_MDM2.pdb --target_chain A \
+ --binder_len 12 --output examples/outputs/MDM2_binder.pdb
+
+ # Keap1 binder
+ ./env/bin/python examples/use_case_3_cyclic_binder_design.py \
+ --pdb examples/data/structures/2FLU_Keap1.pdb --target_chain X \
+ --binder_len 14 --output examples/outputs/Keap1_binder.pd
 ```
 
 #### Design Binder to Target
