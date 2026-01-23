@@ -363,6 +363,12 @@ Benchmark Sequences (from paper):
     parser.add_argument("--quiet", "-q", action="store_true",
                        help="Suppress verbose output")
 
+    # GPU arguments (parsed early by gpu_utils, included here for --help)
+    parser.add_argument("--gpu", type=int, metavar="ID",
+                       help="GPU device ID to use (0, 1, etc.)")
+    parser.add_argument("--cpu", action="store_true",
+                       help="Force CPU mode")
+
     args = parser.parse_args()
 
     # Get sequence

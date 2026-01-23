@@ -1,6 +1,4 @@
-HEADER    CYCLIC PEPTIDE SFTI-1                  05-JUN-01   1JBL_A
-TITLE     CHAIN A FROM 1JBL - CYCLIC TRYPSIN INHIBITOR (14 RESIDUES)
-REMARK    SEQUENCE: GRCTKSIPPICFPD (head-to-tail cyclic)
+MODEL        1
 ATOM      1  N   GLY A   1      10.296   0.838   8.225  1.00  0.00           N  
 ATOM      2  CA  GLY A   1      11.054   2.013   8.639  1.00  0.00           C  
 ATOM      3  C   GLY A   1      11.970   2.563   7.554  1.00  0.00           C  
@@ -201,4 +199,5 @@ ATOM    197  HD2 PRO A  13       7.307  -1.636   4.170  1.00  0.00           H
 ATOM    198  HD3 PRO A  13       6.617  -0.254   3.292  1.00  0.00           H  
 ATOM    199  N   ASP A  14       8.354  -0.972   7.496  1.00  0.00           N  
 ATOM    200  CA  ASP A  14       9.267  -1.365   8.565  1.00  0.00           C  
+ENDMDL
 END
